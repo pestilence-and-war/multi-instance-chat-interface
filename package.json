@@ -1,0 +1,9 @@
+{
+  "devDependencies": {
+  "@tailwindcss/cli": "^4.1.11",
+  "@tailwindcss/postcss": "^4.1.11"
+},
+  "scripts": {
+  "build:css": "npx @tailwindcss/cli -i ./static/css/input.css -o ./static/css/style.css --watch"
+}
+}

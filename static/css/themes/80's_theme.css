@@ -1,0 +1,199 @@
+/* static/css/themes/80's_theme.css */
+.theme-80s {
+    --neon-cyan: #00ffff;
+    --neon-magenta: #ff00ff;
+    --neon-green: #39ff14;
+    --neon-yellow: #fff000;
+    --neon-red: #ff0000;
+    --neon-purple: #8A2BE2;
+    --neon-orange: #FFA500;
+    --neon-gold: #ffd700;
+    --neon-blue: #0000ff;
+
+    background-color: #000000 !important;
+    background-image:
+        linear-gradient(var(--neon-cyan) 1px, transparent 1px),
+        linear-gradient(90deg, var(--neon-cyan) 1px, transparent 1px);
+    background-size: 50px 50px;
+    font-family: 'Courier New', Courier, monospace !important;
+    color: var(--neon-green) !important;
+    text-shadow: 0 0 5px var(--neon-green), 0 0 10px var(--neon-green);
+    position: relative;
+    z-index: 1;
+}
+
+#background-80s-effects {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: -1;
+    overflow: hidden;
+}
+
+.theme-80s #background-80s-effects {
+    display: block;
+}
+
+.theme-80s #background-80s-effects::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(0.75deg, rgba(0, 255, 255, 0.144), rgba(0, 255, 255, 0.1) 6px, transparent 6px, transparent 1px);
+    opacity: 1;
+    animation: flicker .09s infinite;
+}
+
+@keyframes flicker {
+    0%   { opacity: 0; }
+    50%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+.theme-80s .laser {
+    position: absolute;
+    width: 5px;
+    height: 150%;
+    background: var(--neon-magenta);
+    box-shadow: 0 0 50px var(--neon-magenta), 0 0 50px var(--neon-magenta);
+    opacity: 1;
+    animation-name: scan;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+
+@keyframes scan { 55% { transform: translate(-100px, 100px) rotate(118deg); } 66% { transform: translate(calc(150vw + 100px), calc(8vw + 10px)) rotate(720deg); } }
+@keyframes scan2 { 35% { transform: translate(calc(100vw + 100px), -50px) rotate(1080deg); } 60% { transform: translate(-10px, calc(100vw - 1000px)) rotate(1240deg); } }
+@keyframes scan3 { 15% { transform: translate(600px, -100px) rotate(-77deg); } 30% { transform: translate(calc(150vw + 100px), calc(10vw + 100px)) rotate(680deg); } }
+@keyframes scan4 { 33% { transform: translate(75vw, -100px) rotate(80deg); } 90% { transform: translate(100vw, calc(15vh + 100px)) rotate(-980deg); } }
+@keyframes scan5 { 1% { transform: translate(750px, calc(100vh + 10px)) rotate(0deg); } 20% { transform: translate(calc(100vw + 100px), -40px) rotate(-135deg); } }
+@keyframes scan6 { 8% { transform: translate(100px, calc(100vh + 100px)) rotate(44deg); } 30% { transform: translate(calc(100vw + 100px), -100px) rotate(360deg); } }
+@keyframes scan7 { 10% { transform: translate(500px, -1000px) rotate(22deg); } 50% { transform: translate(calc(100vw + 100px), calc(5vw + 100px)) rotate(900deg); } }
+@keyframes scan8 { 9% { transform: translate(400px, -1100px) rotate(66deg); } 65% { transform: translate(calc(100vw + 100px), calc(10vw + 100px)) rotate(77deg); } }
+@keyframes scan9 { 20% { transform: translate(600px, -900px) rotate(77deg); } 70% { transform: translate(calc(100vw + 100px), calc(10vw + 100px)) rotate(-360deg); } }
+
+.theme-80s .laser:nth-child(1) { background: var(--neon-cyan); box-shadow: 0 0 15px var(--neon-cyan), 0 0 20px var(--neon-cyan); animation-duration: 50s; animation-delay: -45s; animation-name: scan; }
+.theme-80s .laser:nth-child(2) { animation-duration: 44s; animation-delay: -3s; animation-name: scan2; }
+.theme-80s .laser:nth-child(3) { background: var(--neon-green); box-shadow: 0 0 15px var(--neon-green), 0 0 20px var(--neon-green); animation-duration: 32s; animation-delay: -15.33s; animation-name: scan3; }
+.theme-80s .laser:nth-child(4) { background: var(--neon-yellow); box-shadow: 0 0 15px var(--neon-yellow), 0 0 20px var(--neon-yellow); animation-duration: 45s; animation-delay: -12.2s; animation-name: scan4; }
+.theme-80s .laser:nth-child(5) { background: var(--neon-red); box-shadow: 0 0 15px var(--neon-red), 0 0 20px var(--neon-red); animation-duration: 33s; animation-delay: -5.5s; animation-name: scan5; }
+.theme-80s .laser:nth-child(6) { background: var(--neon-purple); box-shadow: 0 0 15px var(--neon-purple), 0 0 20px var(--neon-purple); animation-duration: 22s; animation-delay: -7s; animation-name: scan6; }
+.theme-80s .laser:nth-child(7) { background: var(--neon-orange); box-shadow: 0 0 15px var(--neon-orange), 0 0 20px var(--neon-orange); animation-duration: 18s; animation-delay: -0.5s; animation-name: scan7; }
+.theme-80s .laser:nth-child(8) { background: var(--neon-gold); box-shadow: 0 0 15px var(--neon-gold), 0 0 20px var(--neon-gold); animation-duration: 100s; animation-delay: -0s; animation-name: scan8; }
+.theme-80s .laser:nth-child(9) { background: var(--neon-blue); box-shadow: 0 0 15px var(--neon-blue), 0 0 20px var(--neon-blue); animation-duration: 90s; animation-delay: -5.5s; animation-name: scan9; }
+
+.theme-80s .bg-gray-100, .theme-80s .bg-white, .theme-80s .bg-indigo-50, .theme-80s .bg-gray-50 {
+    background-color: #40207a5d !important;
+    border: 1px solid var(--neon-magenta) !important;
+    box-shadow: 0 0 10px var(--neon-magenta);
+}
+.theme-80s h1, .theme-80s h2, .theme-80s h3, .theme-80s h4 {
+    color: var(--neon-cyan) !important;
+    text-shadow: 0 0 5px var(--neon-red), 0 0 10px var(--neon-cyan);
+}
+.theme-80s button, .theme-80s [role="button"] {
+    background: transparent !important;
+    color: var(--neon-yellow) !important;
+    border: 2px solid var(--neon-yellow) !important;
+    border-radius: 0 !important;
+    text-shadow: 0 0 5px var(--neon-yellow);
+    box-shadow: inset 0 0 5px var(--neon-yellow), 0 0 10px var(--neon-yellow);
+    transition: all 0.2s ease-in-out;
+}
+.theme-80s button:hover, .theme-80s [role="button"]:hover {
+    background: var(--neon-yellow) !important;
+    color: #000 !important;
+    text-shadow: none;
+    box-shadow: 0 0 20px var(--neon-yellow);
+}
+.theme-80s textarea, .theme-80s select, .theme-80s input {
+    background-color: #28332940 !important;
+    color: var(--neon-green) !important;
+    border: 1px dashed var(--neon-cyan) !important;
+    border-radius: 0 !important;
+    text-shadow: 0 0 3px var(--neon-green);
+}
+.theme-80s .border, .theme-80s .border-t, .theme-80s .border-b, .theme-80s .border-l, .theme-80s .border-r {
+    border-color: var(--neon-magenta) !important;
+}
+/* Style for the select element (combo-box) */
+.theme-80s select {
+    background-color: #1a1a1a4c !important; /* Dark background */
+    color: var(--neon-green) !important; /* Neon green text */
+    border: 1px dashed var(--neon-cyan) !important; /* Dashed neon cyan border */
+    border-radius: 0 !important; /* Sharp corners */
+    text-shadow: 0 0 3px var(--neon-green); /* Text glow */
+    box-shadow: inset 0 0 5px var(--neon-cyan), 0 0 10px var(--neon-cyan); /* Inner and outer glow */
+    transition: all 0.2s ease-in-out; /* Smooth transitions for hover/focus */
+}
+
+/* Style for the select element when focused */
+.theme-80s select:focus {
+    outline: none !important; /* Remove default outline */
+    border-color: var(--neon-magenta) !important; /* Change border color on focus */
+    box-shadow: inset 0 0 8px var(--neon-magenta), 0 0 15px var(--neon-magenta) !important; /* Stronger glow on focus */
+}
+
+/* Style for the options within the select element */
+.theme-80s select option {
+    background-color: #0d0221 !important; /* Dark background for options */
+    color: var(--neon-yellow) !important; /* Neon yellow text for options */
+    text-shadow: 0 0 3px var(--neon-yellow); /* Text glow for options */
+}
+
+/* Style for hovered/selected options (browser dependent, may not work in all browsers) */
+.theme-80s select option:checked,
+.theme-80s select option:hover {
+    background-color: var(--neon-purple) !important; /* Highlight with neon purple on hover/selection */
+    color: #fff !important; /* White text for better contrast on highlight */
+    text-shadow: 0 0 5px #fff; /* White text glow on highlight */
+}
+
+.theme-80s .codehilite { background: #2ef0195b; color: var(--neon-green); border: 1px solid var(--neon-magenta); text-shadow: 0 0 3px var(--neon-green); }
+.theme-80s .codehilite .c { color: #888; text-shadow: none; } /* Comment */
+.theme-80s .codehilite .k { color: var(--neon-magenta); text-shadow: 0 0 5px var(--neon-magenta); } /* Keyword */
+.theme-80s .codehilite .o { color: var(--neon-cyan); text-shadow: 0 0 5px var(--neon-cyan); } /* Operator */
+.theme-80s .codehilite .s { color: var(--neon-yellow); text-shadow: 0 0 5px var(--neon-yellow); } /* String */
+.theme-80s .codehilite .n { color: var(--neon-green); } /* Name */
+.theme-80s .codehilite .na { color: var(--neon-cyan); } /* Name.Attribute */
+.theme-80s .codehilite .nb { color: #39ff14; font-weight: bold; } /* Name.Builtin */
+.theme-80s .codehilite .nc { color: var(--neon-yellow); text-decoration: underline; } /* Name.Class */
+.theme-80s .codehilite .nf { color: var(--neon-cyan); } /* Name.Function */
+.theme-80s .codehilite .m { color: var(--neon-yellow); } /* Literal.Number */
+.theme-80s .codehilite .p { color: #fff; text-shadow: none; } /* Punctuation */
+.theme-80s .codehilite .kt { color: #90be89; text-shadow: none; } /* Keyword.Type */
+.theme-80s .codehilite .cp { color: #b34067; text-shadow: none; } /* Comment.Preproc */
+
+
+.theme-80s .markdown-content p {
+    color: var(--neon-green);
+    text-shadow: 0 0 5px var(--neon-green), 0 0 3px var(--neon-green);
+}
+.theme-80s label {
+    color: var(--neon-gold) !important;
+    text-shadow: 0 0 5px var(--neon-yellow), 0 0 10px var(--neon-yellow);
+}
+.theme-80s strong {
+    color: var(--neon-gold) !important;
+    text-shadow: 0 0 5px var(--neon-yellow), 0 0 10px var(--neon-yellow);
+}
+.theme-80s span {
+    color: var(--neon-cyan) !important;
+    text-shadow: 0 0 5px var(--neon-cyan), 0 0 10px var(--neon-cyan);
+}
+.theme-80s li {
+    color: var(--neon-green) !important;
+    text-shadow: 0 0 5px var(--neon-green), 0 0 10px var(--neon-green);
+}
+.theme-80s pre {
+    color: var(--neon-green) !important;
+    text-shadow: 0 0 3px var(--neon-green), 0 0 6px var(--neon-green);
+}
+.theme-80s .bg-blue-100,
+.theme-80s .dark\:bg-blue-900 {
+    background-color: #8609797c !important;
+    border: 1px solid var(--neon-magenta) !important; /* Neon border */
+    box-shadow: 0 0 10px var(--neon-magenta) !important; /* Neon shadow */
+}

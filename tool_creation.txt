@@ -1,0 +1,217 @@
+Based on my analysis of the existing tools, I have created the tool_creation.txt file. This file serves as a comprehensive guide for developers to create new tools that are fully compatible with your system’s architecture.
+
+I will now write this content to tool_creation.txt.
+
+# How to Create a New Tool for the System
+
+This document provides the specification and a template for creating new, functional tools that can be dynamically registered and used by the AI. Adhering to this structure is essential for ensuring your tool is discovered and executed correctly.
+
+---
+### Core Principles
+---
+
+1.  **Standard Python:** Tools are standard Python functions within a `.py` file placed in the `my_tools/` directory.
+2.  **Self-Contained:** Each file should be self-contained or rely only on standard libraries or packages listed in `requrements.txt`.
+3.  **Structured Docstrings:** The system parses the function's docstring to understand its purpose and parameters. **The format must be followed exactly.**
+4.  **Type Hinting:** All function parameters must have Python type hints (e.g., `param: str`, `count: int`).
+5.  **JSON String Output:** Every tool function **must** return a JSON formatted string. This is the standard interface for passing data and errors back to the system.
+6.  **Database Access:** For tools that need to query the codebase context (files, classes, functions), use the provided `_CodebaseManager` singleton to interact with the `project_context.db` SQLite database. For simple, stateless tools (like a calculator), this is not necessary.
+7.  **Error Handling:** Never let a tool crash. Gracefully catch all potential exceptions and return a structured JSON error message.
+
+---
+### Tool File Template (`my_new_tool.py`)
+---
+
+Below is a complete template. Use the "Database-Enabled" version for tools that need codebase context, and the "Stateless" version for simpler tools.
+
+#### Version 1: Database-Enabled Tool (for accessing project context)
+
+```python
+# my_tools/my_contextual_tool.py
+
+import json
+import os
+import sqlite3
+from typing import Dict, Any, Optional
+
+# --- Internal Class for Data Management (Singleton) ---
+# This class provides a safe, read-only connection to the project's context database.
+# You can copy this class as-is into your new tool file.
+class _CodebaseManager:
+    _instance = None
+    _db_file_path = "project_context.db"
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(_CodebaseManager, cls).__new__(cls)
+            cls._instance.conn = None
+            cls._instance._connect_to_db()
+        return cls._instance
+
+    def _connect_to_db(self):
+        db_path = os.environ.get("CODEBASE_DB_PATH", self.__class__._db_file_path)
+        if not os.path.exists(db_path):
+            self.conn = None
+            return
+        try:
+            db_uri = f"file:{os.path.abspath(db_path)}?mode=ro"
+            self.conn = sqlite3.connect(db_uri, uri=True, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
+        except sqlite3.Error:
+            self.conn = None
+
+    def _execute_query(self, query: str, params: tuple = ()):
+        if not self.conn:
+            return None
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(query, params)
+            return cursor
+        except sqlite3.Error as e:
+            print(f"Database query error: {e}")
+            return None
+
+    # --- Add your internal logic functions here ---
+    def _internal_get_my_data(self, file_path: str) -> Dict[str, Any]:
+        # Example: Get a file's type from the database
+        cursor = self._execute_query("SELECT type FROM files WHERE path = ?", (file_path,))
+        if not cursor:
+            return {"error": "Database query failed.", "status": "error_db_query"}
+
+        row = cursor.fetchone()
+        if not row:
+            return {"file_path": file_path, "error": "File not found.", "status": "error_not_found"}
+
+        return {"file_path": file_path, "file_type": row['type'], "status": "success"}
+
+# --- Public Tool Function ---
+# This is the function that will be registered and called by the AI.
+def get_file_type_example(file_path: str) -> str:
+    """
+    (Low-Cost) A brief, one-line description of what the tool does.
+
+    Provide a more detailed explanation here if necessary. This description is used
+    by the AI to understand when and how to use this tool.
+
+    @param file_path (string): The relative path to the file to inspect. REQUIRED.
+    @param another_param (integer): An example of another parameter.
+    """
+    # 1. Check for database connection
+    manager = _CodebaseManager()
+    if not manager.conn:
+        return json.dumps({"error": "Database connection not available.", "status": "error_no_db"})
+
+    # 2. Validate required parameters
+    if not file_path:
+        return json.dumps({"error": "Missing 'file_path' parameter.", "status": "error_missing_param"})
+
+    # 3. Call the internal logic and handle results
+    try:
+        result_dict = manager._internal_get_my_data(file_path)
+    except Exception as e:
+        # Catch-all for unexpected errors in your logic
+        result_dict = {"error": f"An unexpected error occurred: {e}", "status": "error_unexpected"}
+
+    # 4. Return the final result as a JSON string
+    return json.dumps(result_dict, indent=2)
+
+# --- Test Block ---
+if __name__ == '__main__':
+    print("--- Testing My New Tool ---")
+    # Add test cases to ensure your tool works correctly and handles errors.
+    # Example:
+    test_file = "app.py" 
+    print(f"--- Test Case 1: Valid File ---")
+    print(get_file_type_example(test_file))
+
+    print(f"--- Test Case 2: Invalid File ---")
+    print(get_file_type_example("non_existent_file.py"))
+
+    print(f"--- Test Case 3: Missing Parameter ---")
+    print(get_file_type_example(""))
+Copy
+Version 2: Stateless Tool (e.g., a calculator, no database needed)
+# my_tools/my_simple_tool.py
+
+import json
+
+def simple_tool_example(text_input: str, uppercase: bool = False) -> str:
+    """
+    (Low-Cost) An example of a simple, stateless tool.
+
+    This tool manipulates a string without needing any external context. It's a good
+    template for tools that perform pure computations or transformations.
+
+    @param text_input (string): The text to process. REQUIRED.
+    @param uppercase (boolean): If true, converts the output to uppercase. Defaults to False.
+    """
+    # 1. Validate required parameters
+    if not text_input:
+        return json.dumps({"error": "Missing 'text_input' parameter.", "status": "error_missing_param"})
+
+    # 2. Execute the tool's logic
+    try:
+        result = f"Processed: {text_input}"
+        if uppercase:
+            result = result.upper()
+
+        result_dict = {
+            "input": text_input,
+            "output": result,
+            "status": "success"
+        }
+    except Exception as e:
+        result_dict = {"error": f"An unexpected error occurred: {e}", "status": "error_unexpected"}
+
+    # 3. Return the result as a JSON string
+    return json.dumps(result_dict, indent=2)
+
+# --- Test Block ---
+if __name__ == '__main__':
+    print("--- Testing Simple Tool ---")
+    print(simple_tool_example("hello world"))
+    print(simple_tool_example("hello world", uppercase=True))
+    print(simple_tool_example("")) # Test error case
+Copy
+Specification Details
+Docstring Format
+The docstring is parsed automatically. Follow this format precisely.
+
+"""
+(Cost-Hint) One-line summary of the function.
+
+Longer description of what the tool does, its capabilities, and when to use it.
+This is critical for the AI to make good decisions.
+
+@param param_name (python_type): Description of the parameter. Use REQUIRED for mandatory args.
+@param optional_param (python_type): Description of an optional parameter.
+"""
+Copy
+(Cost-Hint): Optional but helpful. Use (Low-Cost), (Medium-Cost), or (High-Cost).
+One-line summary: A concise sentence.
+Longer description: Explain the tool’s purpose in detail.
+@param: Use this tag for every parameter. The format is @param name (type): description.
+JSON Return Structure
+On Success:
+{
+  "status": "success",
+  "data_key_1": "value1",
+  "data_key_2": ["value2", "value3"]
+}
+Copy
+On Error:
+{
+  "status": "error_type_here",
+  "error": "A descriptive message about what went wrong."
+}
+Copy
+
+Common error_type_here values: error_missing_param, error_not_found, error_db_query, error_invalid_input, error_unexpected.
+Final Checklist
+[ ] My tool is in a new .py file inside the my_tools/ directory.
+[ ] My public-facing function has a correctly formatted docstring.
+[ ] All function parameters have Python type hints.
+[ ] The function always returns a JSON string (json.dumps(...)).
+[ ] The return JSON includes a status key (“success” or “error_…”).
+[ ] All potential errors are caught and returned as a structured JSON error message.
+[ ] I have included a if __name__ == '__main__': block with test cases.

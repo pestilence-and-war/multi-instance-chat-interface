@@ -1,0 +1,91 @@
+{# Renders the full context editor form, replacing main chat content #}
+<div id="context-editor-{{ instance.instance_id }}" class="bg-black p-4 rounded-lg shadow-lg border border-gray-800">
+    <h2 class="text-xl font-semibold mb-4 text-gray-100">Edit Chat Context (Instance: {{ instance.instance_id[:6] }})</h2>
+    <p class="text-sm mb-4 text-amber-400 border-l-4 border-amber-400/50 pl-3">Warning: Editing context can lead to unexpected model behavior. Timestamps shown are original.</p>
+
+    <form id="edit-form-{{ instance.instance_id }}"
+          hx-post="{{ url_for('save_edited_context', instance_id=instance.instance_id) }}"
+          hx-target="#chat-content-area"
+          hx-swap="innerHTML"
+          hx-indicator="#loading-indicator">
+
+        {# Loop through history and create form fields #}
+        {% for msg in instance.chat_history %}
+        <div class="mb-4 p-3 border rounded-md bg-gray-900/70 border-gray-700/80 relative group" data-turn-index="{{ loop.index0 }}">
+             <input type="hidden" name="msg_{{ loop.index0 }}_timestamp" value="{{ msg.get('timestamp', '') }}">
+
+             <div class="flex justify-between items-center mb-2">
+                 <label for="msg_{{ loop.index0 }}_role" class="block text-sm font-medium text-gray-300">Role:</label>
+                 <select name="msg_{{ loop.index0 }}_role" id="msg_{{ loop.index0 }}_role" class="text-sm border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 bg-gray-800 text-gray-200">
+                     <option value="user" {% if msg.role == 'user' %}selected{% endif %}>User</option>
+                     <option value="assistant" {% if msg.role == 'assistant' %}selected{% endif %}>Assistant</option>
+                     <option value="system" {% if msg.role == 'system' %}selected{% endif %}>System</option>
+                     <option value="tool" {% if msg.role == 'tool' %}selected{% endif %}>Tool</option>
+                 </select>
+                 <span class="text-xs text-gray-500 ml-2">Original Time: {{ msg.timestamp | format_time }}</span>
+             </div>
+             <label for="msg_{{ loop.index0 }}_content" class="sr-only">Content:</label>
+             <textarea name="msg_{{ loop.index0 }}_content" id="msg_{{ loop.index0 }}_content" rows="4"
+                       class="w-full p-2 border rounded-md shadow-sm text-sm font-mono bg-gray-800 border-gray-600 text-gray-200 focus:ring-indigo-500 focus:border-indigo-500">{{ msg.content }}</textarea>
+
+             <div class="flex gap-2 mt-2">
+                 <button type="button" class="delete-turn-btn text-red-500 text-xs border border-red-500/30 rounded px-2 py-1 hover:bg-red-500/10 hover:border-red-500/70 transition-colors">Delete</button>
+                 <button type="button" class="insert-turn-btn text-green-500 text-xs border border-green-500/30 rounded px-2 py-1 hover:bg-green-500/10 hover:border-green-500/70 transition-colors">Insert Below</button>
+             </div>
+
+             <div class="insert-placeholder mt-2"></div>
+        </div>
+        {% endfor %}
+
+        <div class="flex justify-end gap-3 mt-4">
+            <button type="button"
+                    class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors"
+                    hx-get="{{ url_for('get_chat_instance', instance_id=instance.instance_id) }}"
+                    hx-target="#chat-content-area"
+                    hx-swap="innerHTML">
+                Cancel
+            </button>
+            <button type="submit"
+                    class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors">
+                Save Edited Context
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+// Handle Delete button
+const form = document.getElementById('edit-form-{{ instance.instance_id }}');
+form.querySelectorAll('.delete-turn-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        btn.closest('[data-turn-index]').remove();
+    });
+});
+
+// Handle Insert Below button
+form.querySelectorAll('.insert-turn-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const container = btn.closest('[data-turn-index]');
+        const placeholder = container.querySelector('.insert-placeholder');
+        if(placeholder.children.length > 0) return; // Already inserted
+
+        const idx = parseInt(container.dataset.turnIndex) + 0.5; // fractional index
+        const newDiv = document.createElement('div');
+        newDiv.className = 'mt-2 p-2 border rounded-md bg-gray-900/50 border-gray-700/80';
+        newDiv.innerHTML = `
+            <label class="block text-sm font-medium mb-1 text-gray-300">New Turn Role:</label>
+            <select name="msg_new_${idx}_role" class="text-sm border-gray-600 rounded-md shadow-sm mb-2 bg-gray-800 text-gray-200">
+                <option value="user">User</option>
+                <option value="assistant">Assistant</option>
+                <option value="system">System</option>
+            </select>
+            <textarea name="msg_new_${idx}_content" rows="3" class="w-full p-2 border rounded-md shadow-sm text-sm font-mono mb-2 bg-gray-800 border-gray-600 text-gray-200"></textarea>
+            <input type="hidden" name="msg_new_${idx}_timestamp" value="{{ '%s'|format_time }}">
+            <button type="button" class="remove-insert-btn text-xs text-red-500 border border-red-500/30 rounded px-2 py-1 hover:bg-red-500/10 hover:border-red-500/70 transition-colors">Remove Insert</button>
+        `;
+        placeholder.appendChild(newDiv);
+
+        newDiv.querySelector('.remove-insert-btn').onclick = () => newDiv.remove();
+    });
+});
+</script>

@@ -1,0 +1,28 @@
+/* static/css/themes/base_styles.css */
+
+/* --- Layout & Copy Button Styles --- */
+.markdown-content pre {
+    border-radius: 0.375rem;
+    padding: 1em;
+    overflow-x: auto; /* Fixes text overflow */
+    font-size: 75%;
+}
+.code-container {
+    position: relative;
+    margin-top: 1em;
+    margin-bottom: 1em;
+}
+.code-container pre {
+    margin: 0;
+}
+.copy-btn {
+    position: absolute; top: 0.5rem; right: 0.5rem; padding: 0.25rem 0.5rem;
+    background-color: #e5e7eb; color: #374151; border-radius: 0.25rem;
+    font-size: 0.875rem; font-weight: 600; z-index: 10; border: 1px solid #d1d5db;
+}
+.copy-btn:hover { background-color: #d1d5db; }
+
+.dark .copy-btn {
+    background-color: #4b5563; color: #e5e7eb; border: 1px solid #374151;
+}
+.dark .copy-btn:hover { background-color: #6b7280; }

@@ -1,0 +1,8 @@
+Flask
+requests
+python-dotenv
+markdown
+Pygments # For code highlighting in markdown
+htmx # You'll download htmx.min.js separately
+google-genai
+bleach

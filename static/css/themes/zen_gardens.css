@@ -1,0 +1,57 @@
+/* static/css/themes/zen_gardens.css */
+.theme-zen {
+    --zen-bg: #FDFDFD;
+    --zen-text: #4A4A4A;
+    --zen-primary: #6B8E23;
+    --zen-secondary: #A9A9A9;
+    --zen-accent: #8FBC8F;
+
+    background-color: var(--zen-bg) !important;
+    font-family: 'Georgia', 'Times New Roman', serif !important;
+    color: var(--zen-text) !important;
+    transition: background-color 0.5s ease, color 0.5s ease;
+}
+.theme-zen .bg-gray-100, .theme-zen .bg-white, .theme-zen .bg-indigo-50, .theme-zen .bg-gray-50, .theme-zen .bg-gray-200 {
+    background-color: #F5F5F5 !important;
+    border: 1px solid #E0E0E0 !important;
+}
+.theme-zen h1, .theme-zen h2, .theme-zen h3, .theme-zen h4 {
+    color: var(--zen-primary) !important;
+    font-weight: normal !important;
+}
+.theme-zen button, .theme-zen [role="button"] {
+    background-color: #FFFFFF !important;
+    color: var(--zen-primary) !important;
+    border: 1px solid var(--zen-accent) !important;
+    border-radius: 8px !important;
+    font-weight: normal !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    transition: all 0.3s ease;
+}
+.theme-zen button:hover, .theme-zen [role="button"]:hover {
+    background-color: var(--zen-accent) !important;
+    color: #FFFFFF !important;
+    border-color: var(--zen-primary) !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+.theme-zen textarea, .theme-zen select, .theme-zen input {
+    background-color: #FFFFFF !important;
+    color: var(--zen-text) !important;
+    border: 1px solid var(--zen-secondary) !important;
+    border-radius: 8px !important;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.04);
+}
+.theme-zen .border, .theme-zen .border-t, .theme-zen .border-b, .theme-zen .border-l, .theme-zen .border-r {
+    border-color: #E0E0E0 !important;
+}
+.theme-zen .codehilite { background: #F8F8F8; color: #586E75; border: 1px solid #EAEAEA; border-radius: 8px; }
+.theme-zen .codehilite .c { color: #93A1A1; font-style: italic; } /* Comment */
+.theme-zen .codehilite .k { color: #859900; } /* Keyword */
+.theme-zen .codehilite .o { color: #6C71C4; } /* Operator */
+.theme-zen .codehilite .s { color: #2AA198; } /* String */
+.theme-zen .codehilite .n { color: #586E75; } /* Name */
+.theme-zen .codehilite .na { color: #B58900; } /* Name.Attribute */
+.theme-zen .codehilite .nc { color: #268BD2; } /* Name.Class */
+.theme-zen .codehilite .nf { color: #268BD2; } /* Name.Function */
+.theme-zen .codehilite .m { color: #D33682; } /* Literal.Number */
+.theme-zen .codehilite .p { color: #586E75; } /* Punctuation */

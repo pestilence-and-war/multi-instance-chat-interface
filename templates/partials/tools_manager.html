@@ -1,0 +1,80 @@
+{# templates/partials/tools_manager.html #}
+{# Expects: instance #}
+{# Optional: status_message, is_error #}
+<div id="tools-manager-{{ instance.instance_id }}" class="my-4 p-4 border rounded-lg bg-gray-100 dark:bg-gray-900 border-gray-200 dark:border-gray-700 shadow-md">
+    <h3 class="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-200">Manage Tools for Instance {{ instance.instance_id[:4] }}</h3>
+
+    {# Display Status Message #}
+    <div id="tool-status-{{ instance.instance_id }}" class="mb-3 text-sm {% if is_error %}text-red-500 dark:text-red-400{% else %}text-green-600 dark:text-green-400{% endif %}" hx-swap-oob="true">
+        {{ status_message | default('') }}
+    </div>
+
+    {# List Registered Tools #}
+    <div class="mb-4">
+        <h4 class="text-md font-medium mb-2 text-gray-700 dark:text-gray-300">Registered Tools:</h4>
+        {% if instance.tools_definitions %}
+            <ul id="tool-list-{{ instance.instance_id }}" class="space-y-2">
+                {% for name, definition in instance.tools_definitions.items() %}
+                <li id="tool-item-{{ instance.instance_id }}-{{ name }}" class="text-sm">
+                    <div class="flex justify-between items-center p-2 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
+                        <div>
+                            <strong class="font-mono bg-blue-100 dark:bg-blue-900/50 px-1 rounded text-blue-800 dark:text-blue-300">{{ name }}</strong>
+                            <span class="text-gray-600 dark:text-gray-400 text-xs"> (from {{ definition.get('source_module', 'N/A') }}.{{ definition.get('source_function', 'N/A') }})</span>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 pl-2 mt-1">{{ definition.get('description', 'No description available.') }}</p>
+                        </div>
+                        <button class="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-xs font-semibold border border-red-300 dark:border-red-500/50 rounded px-2 py-0.5 ml-2 flex-shrink-0 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                                hx-delete="{{ url_for('unregister_tool_route', instance_id=instance.instance_id, tool_name=name) }}"
+                                hx-target="#tools-manager-{{ instance.instance_id }}"
+                                hx-swap="outerHTML"
+                                hx-confirm="Are you sure you want to unregister the tool '{{ name }}'? This is recommended for stale tools.">
+                            Remove
+                        </button>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-sm text-gray-500 dark:text-gray-400">No tools registered for this instance.</p>
+        {% endif %}
+    </div>
+
+    {# --- Dynamic Tool Registration Workflow --- #}
+    <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <h4 class="text-md font-medium mb-2 text-gray-700 dark:text-gray-300">Register New Tool:</h4>
+
+        <div id="tool-discovery-panel-{{ instance.instance_id }}" class="mb-4">
+            <button class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors"
+                    hx-get="{{ url_for('discover_tools_route', instance_id=instance.instance_id) }}"
+                    hx-target="#tool-discovery-panel-{{ instance.instance_id }}"
+                    hx-swap="innerHTML"
+                    hx-indicator="#loading-indicator-{{ instance.instance_id }}">
+                Discover Available Tools
+            </button>
+            <span id="loading-indicator-{{ instance.instance_id }}" class="htmx-indicator ml-2 text-sm text-gray-500 dark:text-gray-400">Searching...</span>
+        </div>
+
+        <details class="text-xs text-gray-500 dark:text-gray-400">
+            <summary class="cursor-pointer hover:text-gray-800 dark:hover:text-gray-200">Manual Tool Entry</summary>
+            <form hx-post="{{ url_for('register_tool_route_manual', instance_id=instance.instance_id) }}"
+                  hx-target="#tools-manager-{{ instance.instance_id }}"
+                  hx-swap="outerHTML"
+                  class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-2">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
+                    <div>
+                        <label for="tool_name-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-600 dark:text-gray-300">Tool Name *</label>
+                        <input type="text" name="tool_name" id="tool_name-{{ instance.instance_id }}" required placeholder="e.g., get_weather" class="mt-1 block w-full border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-md shadow-sm sm:text-sm text-gray-900 dark:text-gray-200">
+                    </div>
+                    <div>
+                        <label for="module_path-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-600 dark:text-gray-300">Module Path *</label>
+                        <input type="text" name="module_path" id="module_path-{{ instance.instance_id }}" required placeholder="e.g., my_tools.weather" class="mt-1 block w-full border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-md shadow-sm sm:text-sm text-gray-900 dark:text-gray-200">
+                    </div>
+                    <div>
+                        <label for="function_name-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-600 dark:text-gray-300">Function Name *</label>
+                        <input type="text" name="function_name" id="function_name-{{ instance.instance_id }}" required placeholder="e.g., get_current_weather" class="mt-1 block w-full border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-md shadow-sm sm:text-sm text-gray-900 dark:text-gray-200">
+                    </div>
+                </div>
+                <button type="submit" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded text-sm mt-2 transition-colors">Register Manually</button>
+            </form>
+        </details>
+    </div>
+</div>

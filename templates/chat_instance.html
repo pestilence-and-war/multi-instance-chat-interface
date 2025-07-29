@@ -1,0 +1,245 @@
+{# Renders ONE chat instance #}
+<div id="chat-instance-{{ instance.instance_id }}" class="bg-white dark:bg-gray-800 p-4 rounded shadow-lg border border-gray-200 dark:border-gray-700">
+
+    {# --- Configuration Section --- #}
+    <form id="config-form-{{ instance.instance_id }}"
+        {# Send updates on input change for sliders/selects, delay for text area #}
+        hx-post="{{ url_for('update_config', instance_id=instance.instance_id) }}"
+        {# Trigger config save on change for system prompt and param sliders #}
+        hx-trigger="change[target.type!='range'], change delay:500ms[target.type=='range'], change[target.tagName=='TEXTAREA'] delay:1s"
+        hx-target="#status-{{ instance.instance_id }}"
+        hx-swap="outerHTML"
+        class="mb-4 p-4 border rounded bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700"
+        >
+        {# Connection Status / Error #}
+        {% if instance.connection_error %}
+        <div class="mb-2 p-2 bg-red-100 text-red-700 border border-red-300 rounded dark:bg-red-900 dark:text-red-200 dark:border-red-700">
+            <strong>Connection Error:</strong> {{ instance.connection_error }}
+        </div>
+        {% elif not instance.api_client %}
+        <div class="mb-2 p-2 bg-yellow-100 text-yellow-700 border border-yellow-300 rounded dark:bg-yellow-900 dark:text-yellow-200 dark:border-yellow-700">
+            Not Connected. Select Provider/Model and click Connect. (API key loaded from .env)
+        </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+            {# Provider selection - needed for initial connection #}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Provider</label>
+                {# Allow selection only if not connected #}
+                {% if not instance.api_client %}
+                <select name="provider" class="mt-1 block w-full py-2 px-3 border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200">
+                    {# Use global providers list from context #}
+                    {% for pname in providers %}
+                        {# Pre-select based on class name if loaded but not connected #}
+                        <option value="{{ pname }}" {% if instance.api_client_class_name and pname in instance.api_client_class_name %}selected{% elif not instance.api_client_class_name and pname == DEFAULT_PROVIDER %}selected{% endif %}>
+                            {{ pname }}
+                        </option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                {# Show connected provider, disable changes #}
+                <input type="text" value="{{ instance.api_client_class_name.replace('Client','') if instance.api_client_class_name else 'N/A' }}"
+                    disabled class="mt-1 block w-full py-2 px-3 text-base border-gray-300 bg-gray-200 sm:text-sm rounded-md cursor-not-allowed dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400">
+                {% endif %}
+            </div>
+            <div>
+                <label for="model-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Model</label>
+                <select name="model" id="model-{{ instance.instance_id }}"
+                        {# Add disabled attribute if not connected #}
+                        {% if not instance.api_client %}disabled{% endif %}
+                        {# Trigger config update specifically on model change #}
+                        hx-post="{{ url_for('update_config', instance_id=instance.instance_id) }}"
+                        hx-trigger="change"
+                        hx-target="#status-{{ instance.instance_id }}"
+                        hx-swap="outerHTML"
+                        hx-include="closest form"
+                        {# Apply classes conditionally #}
+                        class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 {% if not instance.api_client %} bg-gray-200 dark:bg-gray-700 cursor-not-allowed {% endif %}">
+
+                    {% set available_models = instance.available_models_list %}
+
+                    {% if available_models %}
+                        {% for m in available_models %}
+                        <option value="{{ m }}" {% if instance.selected_model == m %}selected{% endif %}>{{ m }}</option>
+                        {% endfor %}
+                    {% elif instance.api_client %}
+                        {# Connected but list is empty (e.g., API error getting models) #}
+                        <option value="">-- No models found --</option>
+                    {% else %}
+                        {# Not connected #}
+                        <option value="">-- Connect Provider --</option>
+                    {% endif %}
+                </select>
+            </div>
+        </div>
+
+        {# Show Connect button ONLY if not connected #}
+        {% if not instance.api_client %}
+        <button type="button"
+                class="mt-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                hx-post="{{ url_for('connect_instance', instance_id=instance.instance_id) }}"
+                hx-include="#config-form-{{ instance.instance_id }}" {# Send selected provider #}
+                hx-target="#chat-instance-{{ instance.instance_id }}" {# Replace whole instance block on connect #}
+                hx-swap="outerHTML">
+            Connect
+        </button>
+        {% endif %}
+
+        <div class="mt-4 mb-2"> {# Added mt-4 for spacing after Connect button #}
+            <label for="system-prompt-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">System Prompt</label>
+            <textarea name="system_prompt" id="system-prompt-{{ instance.instance_id }}" rows="2"
+                    {{ 'readonly' if instance.is_generating }}
+                    class="mt-1 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200
+                            {% if instance.is_generating %} bg-gray-100 dark:bg-gray-700 cursor-not-allowed {% endif %}">{{ instance.system_prompt }}</textarea>
+        </div>
+        {# --- Parameters --- #}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label for="temp-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Temperature: <span class="font-mono">{{ "%.2f"|format(instance.generation_params.get('temperature', 0.7)) }}</span>
+                </label>
+                <input type="range" name="temperature" id="temp-{{ instance.instance_id }}" min="0.01" max="2.00" step="0.01"
+                        value="{{ instance.generation_params.get('temperature', 0.7) }}"
+                        {{ 'disabled' if instance.is_generating }}
+                        class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
+                            {% if instance.is_generating %} opacity-50 cursor-not-allowed {% endif %}"
+                        oninput="this.previousElementSibling.querySelector('span').textContent = parseFloat(this.value).toFixed(2)">
+            </div>
+            <div>
+                <label for="topp-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Top P: <span class="font-mono">{{ "%.2f"|format(instance.generation_params.get('top_p', 0.95)) }}</span>
+                </label>
+                <input type="range" name="top_p" id="topp-{{ instance.instance_id }}" min="0.01" max="1.00" step="0.01"
+                        value="{{ instance.generation_params.get('top_p', 0.95) }}"
+                        {{ 'disabled' if instance.is_generating }}
+                        class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
+                                {% if instance.is_generating %} opacity-50 cursor-not-allowed {% endif %}"
+                        oninput="this.previousElementSibling.querySelector('span').textContent = parseFloat(this.value).toFixed(2)">
+            </div>
+        </div>
+    </form>
+
+
+     {# --- Tool Manager Button/Area --- #}
+    <div class="flex justify-end mb-4 -mt-2"> {# Position near config actions #}
+        <button type="button"
+                class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-1 px-3 rounded text-sm focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Manage Tools"
+                {# Enable only if connected and not generating #}
+                {% if not instance.api_client or instance.is_generating %}disabled{% endif %}
+                hx-get="{{ url_for('get_tools_form', instance_id=instance.instance_id) }}"
+                hx-target="#tool-manager-area-{{ instance.instance_id }}"
+                hx-swap="innerHTML">
+            Manage Tools...
+        </button>
+   </div>
+   <div id="tool-manager-area-{{ instance.instance_id }}" class="mb-4">
+       {# tools_manager.html will be loaded here by the button click #}
+   </div>
+
+
+    {# --- Chat Display Area --- #}
+    <div id="chat-display-{{ instance.instance_id }}" class="h-[50vh] md:h-[60vh] overflow-y-auto border rounded p-3 mb-4 bg-white dark:bg-gray-900 shadow-inner"
+        hx-load="initOverlayScrollbars(document.getElementById('chat-display-{{ instance.instance_id }}'))"
+        hx-trigger="load">
+        {% for msg in instance.chat_history %}
+            {% include 'partials/message_turn.html' %}
+        {% endfor %}
+        {# Stream placeholder added dynamically by JS/HTMX after user sends #}
+    </div>
+
+    {# --- User Input Area --- #}
+    <form id="chat-form-{{ instance.instance_id }}"
+          hx-post="{{ url_for('send_user_message', instance_id=instance.instance_id) }}"
+          hx-swap="beforeend"
+          hx-target="#chat-display-{{ instance.instance_id }}"
+          hx-indicator="#loading-indicator"
+          hx-on::after-request=" if(event.detail.successful) { this.reset(); document.getElementById('file-preview-{{ instance.instance_id }}').innerHTML = ''; } "
+          hx-after-settle="initOverlayScrollbars(document.getElementById('chat-display-{{ instance.instance_id }}'))"
+          enctype="multipart/form-data">
+        <div class="mb-2 flex items-center gap-2">
+            <textarea name="user_input" {{ 'disabled' if instance.is_generating or not instance.api_client }}
+                      class="w-full p-2 border rounded focus:ring-indigo-500 focus:border-indigo-500
+                             {% if instance.is_generating or not instance.api_client %} bg-gray-100 cursor-not-allowed {% endif %}"
+                      rows="3" placeholder="{{ 'Enter message...' if instance.api_client else 'Connect Provider first...' }}"></textarea>
+            <button type="button" title="Attach files or images"
+                    onclick="document.getElementById('file-input-{{ instance.instance_id }}').click()"
+                    class="p-2 rounded-full border border-gray-300 hover:bg-gray-100">
+                📎
+            </button>
+        </div>
+        <input type="file" id="file-input-{{ instance.instance_id }}" name="files" multiple accept="image/*,.pdf,.txt,.doc,.docx"
+               class="hidden" onchange="previewFiles(event, '{{ instance.instance_id }}')">
+        <div id="file-preview-{{ instance.instance_id }}" class="flex flex-wrap gap-2 mb-2"></div>
+        <div class="flex justify-between items-center flex-wrap gap-2">
+            <div>
+                <button type="submit" {{ 'disabled' if instance.is_generating or not instance.api_client }}
+                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed">
+                    Send
+                </button>
+                <button type="button" {{ 'disabled' if not instance.is_generating }}
+                        class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                        hx-post="{{ url_for('stop_generation', instance_id=instance.instance_id) }}"
+                        hx-target="#status-{{ instance.instance_id }}"
+                        hx-swap="outerHTML">
+                    Stop
+                </button>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+                <button type="button" {{ 'disabled' if instance.is_generating }}
+                        class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Edit Full Chat Context"
+                        hx-get="{{ url_for('get_edit_context_form', instance_id=instance.instance_id) }}"
+                        hx-target="#chat-content-area" {# Replace main area with editor #}
+                        hx-swap="innerHTML">
+                    Edit Context
+                </button>
+                <button type="button" {{ 'disabled' if instance.is_generating }}
+                        class="bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Save current session state"
+                        hx-post="{{ url_for('save_chat_state', instance_id=instance.instance_id) }}"
+                        hx-target="#status-{{ instance.instance_id }}"
+                        hx-swap="outerHTML">
+                    Save Session
+                </button>
+                <button type="button" {{ 'disabled' if instance.is_generating }}
+                        class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Clear Chat History"
+                         hx-post="{{ url_for('clear_chat', instance_id=instance.instance_id) }}"
+                         hx-target="#chat-instance-{{ instance.instance_id }}" {# Replace this whole block #}
+                         hx-swap="outerHTML"
+                         hx-confirm="Are you sure you want to clear this chat?">
+                    Clear Chat
+                </button>
+            </div>
+        </div>
+    </form>
+
+    <script>
+    function previewFiles(event, instanceId) {
+        const preview = document.getElementById('file-preview-' + instanceId);
+        preview.innerHTML = '';
+        Array.from(event.target.files).forEach(file => {
+            const div = document.createElement('div');
+            div.className = 'w-16 h-16 border rounded overflow-hidden flex items-center justify-center';
+            if(file.type.startsWith('image/')) {
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(file);
+                img.className = 'object-cover w-full h-full';
+                div.appendChild(img);
+            } else {
+                div.innerHTML = `<span class='text-xs text-center'>${file.name}</span>`;
+            }
+            preview.appendChild(div);
+        });
+    }
+    </script>
+
+    {# --- Status Message Area --- #}
+    {# Ensure variables are correctly scoped/passed for the include #}
+    {% set message = '' %} {# Default message is empty #}
+    {% set instance_id = instance.instance_id %} {# Pass the correct id #}
+    {% set is_error = False %} {# Default error state #}
+    {% include 'partials/status_update.html' %}
+</div>

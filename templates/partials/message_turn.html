@@ -1,0 +1,70 @@
+{# templates/partials/message_turn.html #}
+{% set role = msg.get('role', 'unknown') %}
+{% set content = msg.get('content', '') %}
+{% set timestamp = msg.get('timestamp', '') | format_time %}
+
+{% if role == 'user' %}
+<div class="mb-3 flex justify-end">
+    <div class="bg-blue-100 dark:bg-blue-900 dark:text-gray-200 text-gray-900 p-3 rounded-lg max-w-xl shadow">
+        {% if content %}<pre class="text-sm whitespace-pre-wrap font-sans">{{ content }}</pre>{% endif %}
+        {% if msg.files %}
+        <div class="flex flex-wrap gap-2 {% if content %}mt-2{% endif %}">
+            {% for f in msg.files %}
+                {% if 'image' in f.mimetype %}
+                    <img src="/{{ f.path | replace('\\\\', '/') }}" alt="{{ f.filename }}" class="w-20 h-20 object-cover rounded border" />
+                {% else %}
+                    <div class="text-xs bg-gray-200 dark:bg-gray-700 rounded px-2 py-1">📄 {{ f.filename }}</div
+                {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+        <span class="text-xs text-gray-500 dark:text-gray-400 block text-right pt-1">{{ timestamp }}</span>
+    </div>
+</div>
+
+{% elif role == 'assistant' %}
+<div class="mb-3 flex">
+    <div class="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-200 p-3 rounded-lg shadow assistant-message w-full">
+         {% if content %}
+         <div class="max-w-none markdown-content mb-2">
+            {{ content | markdown | safe }}
+        </div>
+        {% endif %}
+        {# --- START FIX --- #}
+        {% if msg.tool_calls %}
+            <div class="mt-2 space-y-1 border-t border-gray-200 dark:border-gray-700 pt-2">
+                <span class="text-xs font-semibold text-purple-700 dark:text-purple-400 block mb-1">Tool Calls Requested:</span>
+                {% for call in msg.tool_calls %}
+                    <div class="text-xs bg-purple-50 dark:bg-purple-900/50 p-1 rounded border border-purple-200 dark:border-purple-800 font-mono">
+                        {# Correctly access the tool name using dictionary syntax #}
+                        <strong class="text-purple-800 dark:text-purple-300">{{ call['name'] }}</strong>
+                        {# Safely access arguments and convert to JSON string #}
+                        {% if call.arguments %}
+                            <span class="text-purple-600 dark:text-purple-400">: {{ call['arguments'] | tojson }}</span>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {# --- END FIX --- #}
+        <span class="text-xs text-gray-500 dark:text-gray-400 block text-right pt-1">{{ timestamp }}</span>
+    </div>
+</div>
+
+{% elif role == 'tool' %}
+<div class="mb-3 flex justify-center mx-auto max-w-md">
+    <div class="bg-yellow-50 dark:bg-yellow-900/50 text-yellow-900 dark:text-yellow-200 p-2 rounded-lg shadow-sm border border-yellow-300 dark:border-yellow-700 w-full">
+         <div class="text-xs font-semibold mb-1">
+             🔧 Tool Result: <strong class="font-mono bg-yellow-100 dark:bg-yellow-800/50 px-1 rounded">{{ msg.name }}</strong>
+         </div>
+         <pre class="text-xs whitespace-pre-wrap break-all bg-white dark:bg-gray-900 p-2 rounded border border-yellow-200 dark:border-yellow-600 max-h-40 overflow-auto">{{ msg.content }}</pre>
+    </div>
+</div>
+
+{% elif role == 'error' %}
+<div class="mb-3">
+    <div class<o>="bg-red-100 text-red-700 p-3 rounded-lg border border-red-300 shadow">
+        <strong>Error:</strong> {{ content }}
+    </div>
+</div>
+{% endif %}

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Multi LLM Chat{% endblock %}</title>
+
+    <!-- Base Project CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/themes/base_styles.css') }}">
+
+    <!-- External Libraries: CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.0/dist/katex.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/overlayscrollbars@2.4.1/styles/overlayscrollbars.min.css">
+
+    <!-- External Libraries: JS -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://unpkg.com/overlayscrollbars@2.4.1/browser/overlayscrollbars.min.js"></script>
+
+    <!-- HTMX -->
+    <script src="{{ url_for('static', filename='js/htmx.min.js') }}" defer></script>
+
+    <!-- Configuration for Marked.js to use Highlight.js -->
+    <script>
+        if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
+            marked.setOptions({
+                highlight: function(code, lang) {
+                    const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+                    return hljs.highlight(code, { language }).value;
+                }
+            });
+        }
+    </script>
+</head>
+
+<!-- The 'dark' class will be added here by theme_manager.js -->
+<body class="bg-gray-100 dark:bg-gray-900 font-sans text-gray-800 dark:text-gray-200">
+
+    <!-- Container for 80s Theme Background Effects -->
+    <div id="background-80s-effects">
+        <div class="laser"></div>
+        <div class="laser"></div>
+        <div class="laser"></div>
+        <div class="laser"></div>
+        <div class="laser"></div>
+        <div class="laser"></div>
+        <div class="laser"></div>
+    </div>
+
+    <!-- THEME CONTROLS -->
+    <button type="button" id="darkModeToggle" onclick="toggleDarkMode()" class="m-2 p-2 border rounded dark:border-gray-600">Toggle Dark Mode</button>
+    <button type="button" id="defaultThemeBtn" onclick="setTheme(null)" class="m-2 p-2 border rounded dark:border-gray-600">Default Theme</button>
+    <button type="button" id="80sThemeToggle" onclick="setTheme('80s')" class="m-2 p-2 border rounded dark:border-gray-600">Toggle 80s Theme</button>
+    <button type="button" id="zenThemeToggle" onclick="setTheme('zen')" class="m-2 p-2 border rounded dark:border-gray-600">Toggle Zen Theme</button>
+    <button type="button" id="hotseatThemeToggle" onclick="setTheme('hotseat')" class="m-2 p-2 border rounded dark:border-gray-600">The Hotseat</button>
+
+    <div class="container mx-auto p-4 max-w-6xl">
+
+        <!-- Hotseat Theme Elements -->
+        <div id="inactivity-timer-bar"></div>
+        <div id="critical-warning-modal">
+            <div class="modal-content">
+                <h1>CRITICAL WARNING</h1>
+                <p>The system is unstable! Return to activity!</p>
+            </div>
+        </div>
+        <audio id="rumble-sound" src="{{ url_for('static', filename='sounds/rumble.mp3') }}" preload="auto"></audio>
+
+        {% block content %}
+        {# This is where index.html content goes #}
+        {% endblock %}
+    </div>
+
+    <!-- Global Modal Container -->
+    <div id="modal-container"></div>
+
+    <!-- INLINE JAVASCRIPT FOR DYNAMIC PAGE FUNCTIONALITY (SSE & HTMX) -->
+    <script>
+        // NOTE: All major functions are now in external JS files.
+        // This block is kept for globally available SSE/HTMX helper functions.
+        window.sseSources = {};
+        window.sseConnectionTokens = {};
+
+        function connectSSE(instanceId, targetElementId) {
+            console.log(`==> connectSSE received: instanceId = '${instanceId}', targetElementId = '${targetElementId}'`);
+            const targetElement = document.getElementById(targetElementId);
+            if (!targetElement) {
+                console.error(`SSE target element #${targetElementId} not found!`);
+                const statusEl = document.getElementById(`status-${instanceId}`);
+                if(statusEl) statusEl.textContent = "Error: Could not find stream display area.";
+                enableChatInput(instanceId);
+                return;
+            }
+            if (window.sseSources[instanceId]) {
+                 console.log(`Closing existing SSE for ${instanceId}`);
+                 window.sseSources[instanceId].close();
+                 delete window.sseSources[instanceId];
+            }
+            const token = Date.now() + "-" + Math.random().toString(36).substring(2);
+            window.sseConnectionTokens[instanceId] = token;
+            targetElement.innerHTML = `
+                <div class="mb-3 flex justify-start">
+                    <div class="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-200 p-3 rounded-lg max-w-xl shadow assistant-message">
+                        <div class="prose prose-sm max-w-none dark:prose-invert" id="prose-${targetElementId}"></div>
+                        <span class="text-xs text-gray-500 block text-right pt-1" id="ts-${targetElementId}">Loading...</span>
+                    </div>
+                </div>
+            `;
+            const proseTarget = document.getElementById(`prose-${targetElementId}`);
+            const timestampTarget = document.getElementById(`ts-${targetElementId}`);
+            const chatDisplay = targetElement.closest('[id^="chat-display-"]');
+            const streamUrl = `/chat/${instanceId}/stream`;
+            console.log("Attempting SSE connection to:", streamUrl);
+            const evtSource = new EventSource(streamUrl);
+            window.sseSources[instanceId] = evtSource;
+            evtSource.onmessage = function(event) {
+                if (window.sseConnectionTokens[instanceId] !== token) {
+                    console.log(`Stale SSE message ignored for ${instanceId}`);
+                    evtSource.close();
+                    return;
+                }
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'chunk') {
+                        const span = document.createElement('span');
+                        span.innerHTML = marked.parseInline(data.content);
+                        span.classList.add('stream-chunk');
+                        proseTarget.appendChild(span);
+                        if (chatDisplay) chatDisplay.scrollTop = chatDisplay.scrollHeight;
+                        if (timestampTarget) timestampTarget.textContent = 'Streaming...';
+                    } else if (data.type === 'finish' || data.type === 'stopped') {
+                        evtSource.close();
+                        delete window.sseSources[instanceId];
+                        htmx.ajax('GET', `/chat/${instanceId}/last_message`, { target: `#${targetElementId}`, swap: 'outerHTML' })
+                            .then(() => {
+                                fetch(`/chat/${instanceId}/save`, { method: 'POST' });
+                                enableChatInput(instanceId);
+                            });
+                    } else if (data.type === 'error') {
+                        evtSource.close();
+                        delete window.sseSources[instanceId];
+                        targetElement.innerHTML = `<div class="mb-3"><div class="bg-red-100 text-red-700 p-3 rounded-lg border border-red-300 shadow"><strong>Error:</strong> ${data.content || 'Unknown stream error.'}</div></div>`;
+                        enableChatInput(instanceId);
+                    }
+                } catch (e) { console.error("Error processing SSE message:", e, event.data); }
+            };
+            evtSource.onerror = function(err) {
+                if (window.sseConnectionTokens[instanceId] !== token) { return; }
+                console.error(`EventSource connection failed for ${instanceId}:`, err);
+                targetElement.innerHTML = `<div class="mb-3"><div class="bg-red-100 text-red-700 p-3 rounded-lg border border-red-300 shadow"><strong>Error:</strong> Stream connection failed.</div></div>`;
+                if (window.sseSources[instanceId]) { window.sseSources[instanceId].close(); delete window.sseSources[instanceId]; }
+                enableChatInput(instanceId);
+            };
+        }
+        function enableChatInput(instanceId) {
+            const instanceDiv = document.getElementById(`chat-instance-${instanceId}`);
+            if (!instanceDiv) return;
+            instanceDiv.querySelectorAll('textarea, button, select, input').forEach(el => el.removeAttribute('disabled'));
+            const stopButton = instanceDiv.querySelector("button[hx-post*='/stop']");
+            if (stopButton) stopButton.setAttribute('disabled', 'true');
+        }
+        function disableChatInput(instanceId) {
+            const instanceDiv = document.getElementById(`chat-instance-${instanceId}`);
+            if (!instanceDiv) return;
+            instanceDiv.querySelectorAll('textarea, button, select, input').forEach(el => el.setAttribute('disabled', 'true'));
+            const stopButton = instanceDiv.querySelector("button[hx-post*='/stop']");
+            if (stopButton) stopButton.removeAttribute('disabled');
+        }
+        function addTabButton(instanceId, name) {
+            const tabBar = document.getElementById('tab-bar');
+            if (!tabBar || document.getElementById(`tab-button-container-${instanceId}`)) return;
+            const container = document.createElement('div');
+            container.id = `tab-button-container-${instanceId}`;
+            container.className = 'tab-button-container inline-block mr-1 mb-1';
+            container.innerHTML = `
+                <button id="tab-button-${instanceId}" class="py-2 px-4 border-b-2 border-transparent hover:border-blue-500 hover:text-blue-500 tab-button" hx-get="/chat/${instanceId}" hx-target="#chat-content-area" hx-swap="innerHTML" hx-indicator="#loading-indicator">${name}</button>
+                <button class="text-red-500 hover:text-red-700 ml-1 px-1 font-bold" title="Close Tab" hx-delete="/chat/${instanceId}/close" hx-target="closest .tab-button-container" hx-swap="outerHTML" hx-confirm="Close chat ${name}?">&times;</button>
+            `;
+            const newChatForm = document.getElementById('new-chat-form');
+            tabBar.insertBefore(container, newChatForm);
+            setTimeout(() => document.getElementById(`tab-button-${instanceId}`).click(), 50);
+        }
+        function setActiveTab(instanceId) {
+            document.querySelectorAll('#tab-bar .tab-button').forEach(b => b.classList.remove('active', 'border-blue-500', 'font-bold', 'text-blue-500'));
+            const activeButton = document.getElementById(`tab-button-${instanceId}`);
+            if (activeButton) activeButton.classList.add('active', 'border-blue-500', 'font-bold', 'text-blue-500');
+        }
+        function addCopyButtons() {
+            document.querySelectorAll('pre code:not(.copy-btn-added)').forEach((codeBlock) => {
+                const pre = codeBlock.parentElement;
+                const container = document.createElement('div');
+                container.className = 'code-container relative';
+                pre.replaceWith(container);
+                container.appendChild(pre);
+                const button = document.createElement('button');
+                button.textContent = 'Copy';
+                button.className = 'copy-btn absolute top-2 right-2 px-2 py-1 bg-gray-200 hover:bg-gray-300 text-sm rounded shadow';
+                button.addEventListener('click', () => {
+                    navigator.clipboard.writeText(codeBlock.innerText).then(() => {
+                        button.textContent = 'Copied!';
+                        setTimeout(() => button.textContent = 'Copy', 1500);
+                    });
+                });
+                container.appendChild(button);
+                codeBlock.classList.add('copy-btn-added');
+            });
+        }
+
+        // HTMX Event Listeners
+        document.body.addEventListener('htmx:beforeRequest', function(event) {
+            if (event.detail.requestConfig.verb === 'post' && event.detail.requestConfig.path.includes('/send')) {
+                const instanceId = event.detail.requestConfig.path.split('/')[2];
+                disableChatInput(instanceId);
+            }
+        });
+        document.body.addEventListener('htmx:afterOnLoad', function(event) {
+            const triggerHeader = event.detail.xhr.getResponseHeader('HX-Trigger');
+            if (triggerHeader) {
+                try {
+                    const triggers = JSON.parse(triggerHeader);
+                    for (const triggerName in triggers) {
+                        const data = triggers[triggerName];
+                        if (triggerName.startsWith('startSSE-')) {
+                            connectSSE(triggerName.substring(9), data.target_id);
+                        } else if (triggerName === 'addTab') {
+                            addTabButton(data.id, data.name);
+                        }
+                    }
+                } catch (e) { console.error("Error parsing HX-Trigger JSON:", e); }
+            }
+            const loadedContent = event.detail.elt;
+            if (loadedContent && loadedContent.id && loadedContent.id.startsWith('chat-instance-')) {
+                setActiveTab(loadedContent.id.substring(14));
+            }
+            addCopyButtons();
+        });
+        document.body.addEventListener('htmx:responseError', function(event) {
+            const instanceId = event.detail.pathInfo.requestPath.split('/')[2];
+            if (instanceId) enableChatInput(instanceId);
+        });
+    </script>
+
+    <!-- 
+      ================================================================
+      PROJECT-SPECIFIC JAVASCRIPT
+      ================================================================
+    -->
+    <script src="{{ url_for('static', filename='js/theme_manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/hotseat_effects.js') }}" defer></script>
+    <!-- The other theme JS files (80s, zen) will be loaded dynamically by the theme_manager -->
+
+</body>
+</html>

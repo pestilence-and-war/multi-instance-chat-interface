@@ -1,0 +1,44 @@
+{# templates/partials/_tool_discovery_step2.html #}
+{# Expects: instance, module_path, tools #}
+<div class="p-3 bg-indigo-100/50 border border-dashed border-indigo-300 rounded">
+    <h5 class="text-sm font-semibold mb-2 text-indigo-700">Step 2: Register Tools from <span class="font-mono">{{ module_path }}</span></h5>
+    {% if tools %}
+        <form hx-post="{{ url_for('register_batch_route', instance_id=instance.instance_id) }}"
+              hx-target="#tools-manager-{{ instance.instance_id }}"
+              hx-swap="outerHTML">
+
+            <input type="hidden" name="module_path" value="{{ module_path }}">
+
+            <div class="space-y-2 mb-3 max-h-48 overflow-y-auto">
+                {% for tool in tools %}
+                    <label class="flex items-center p-2 bg-white rounded border border-indigo-200 hover:bg-indigo-50 cursor-pointer">
+                        <input type="checkbox" name="function_names" value="{{ tool.name }}" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                        <div class="ml-3 text-sm">
+                            <strong class="font-mono text-indigo-900">{{ tool.name }}</strong>
+                            <p class="text-xs text-gray-500">{{ tool.description }}</p>
+                        </div>
+                    </label>
+                {% endfor %}
+            </div>
+            <div class="flex items-center gap-4">
+                <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Register Selected
+                </button>
+                <button class="text-sm text-gray-600 hover:text-gray-900"
+                        hx-get="{{ url_for('discover_tools_route', instance_id=instance.instance_id) }}"
+                        hx-target="#tool-discovery-panel-{{ instance.instance_id }}"
+                        hx-swap="innerHTML">
+                    &larr; Back to modules
+                </button>
+            </div>
+        </form>
+    {% else %}
+        <p class="text-sm text-gray-500">No new, unregistered tools found in this module.</p>
+        <button class="text-sm text-gray-600 hover:text-gray-900 mt-2"
+                hx-get="{{ url_for('discover_tools_route', instance_id=instance.instance_id) }}"
+                hx-target="#tool-discovery-panel-{{ instance.instance_id }}"
+                hx-swap="innerHTML">
+            &larr; Back to modules
+        </button>
+    {% endif %}
+</div>

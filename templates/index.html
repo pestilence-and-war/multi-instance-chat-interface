@@ -1,0 +1,71 @@
+{# templates/index.html #}
+{% extends "base.html" %}
+
+{% block title %}Multi Chat{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-4 glitch-text" data-text="Multi-Instance Chat">Multi-Instance Chat</h1>
+
+<!-- Tab Bar -->
+<div id="tab-bar" class="flex flex-wrap space-x-1 mb-2 border-b border-gray-300 items-center">
+    {# Loop through the instance objects to access their names #}
+    {% for instance in active_instance_objects %}
+    <div class="tab-button-container inline-block mr-1 mb-1" data-instance-id="{{ instance.instance_id }}">
+        <button id="tab-button-{{ instance.instance_id }}"
+                class="py-2 px-4 border-b-2 border-transparent hover:border-blue-500 hover:text-blue-500 tab-button"
+                hx-get="{{ url_for('get_chat_instance', instance_id=instance.instance_id) }}"
+                hx-target="#chat-content-area"
+                hx-swap="innerHTML"
+                hx-indicator="#loading-indicator">
+             {# Add a span to make renaming easier #}
+             <span class="tab-name">{{ instance.name }}</span>
+        </button>
+        <button class="text-red-500 hover:text-red-700 -ml-1 px-1 font-bold"
+                title="Close Tab"
+                hx-delete="{{ url_for('close_chat_instance', instance_id=instance.instance_id) }}"
+                hx-target="closest .tab-button-container"
+                hx-swap="outerHTML"
+                hx-confirm="Close chat '{{ instance.name }}'?">
+            ×
+        </button>
+    </div>
+    {% endfor %}
+
+    {# ... (New Chat Form) ... #}
+    <form id="new-chat-form" class="inline-block ml-auto"
+          hx-post="{{ url_for('new_chat') }}"
+          hx-target="#chat-content-area"
+          hx-swap="innerHTML">
+        <div class="flex items-center space-x-2">
+             <label for="new-chat-provider" class="text-sm font-medium">Provider:</label>
+             <select name="provider" id="new-chat-provider" class="text-sm border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 py-1">
+                 {% for p_name in providers %}
+                 <option value="{{ p_name }}" {% if p_name == default_provider %}selected{% endif %}>{{ p_name }}</option>
+                 {% endfor %}
+             </select>
+            <button type="submit" class="py-2 px-4 text-green-600 hover:text-green-800 font-bold">
+                + New Chat
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Loading Indicator -->
+<div id="loading-indicator" class="htmx-indicator fixed top-0 left-0 w-full h-1 bg-blue-500 z-50 opacity-0 transition-opacity duration-300"></div>
+
+
+<!-- Main Content Area - Swapped by HTMX -->
+<div id="chat-content-area">
+    {% if initial_instance %}
+        {# **** ALTERNATIVE FIX using SET **** #}
+        {# Define the variables needed by the included template #}
+        {% set instance = initial_instance %}
+        {# 'providers' should already be in the main context from Flask #}
+        {# Include the template - it will inherit the current context #}
+        {% include 'chat_instance.html' %}
+    {% else %}
+        <p class="text-gray-600 p-4">Select a chat tab or create a new one using the desired provider.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

@@ -1,0 +1,218 @@
+/* static/css/themes/hotseat.css (v2 - Corrected Specificity) */
+
+/* --- KEYFRAME ANIMATIONS --- */
+@keyframes lava-pulse {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+    20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+@keyframes flow-lava {
+    0% { background-position: 0% 50% }
+    50% { background-position: 100% 50% }
+    100% { background-position: 0% 50% }
+}
+
+@keyframes hot-glow {
+    0%, 100% { text-shadow: 0 0 5px #ff5500, 0 0 10px #ff5500, 0 0 2px #ff8c4a; }
+    50% { text-shadow: 0 0 7px #ff5500, 0 0 15px #ff5500, 0 0 3px #ff8c4a; }
+}
+
+
+/* --- BASE THEME STYLES --- */
+.theme-hotseat {
+    --hotseat-bg: #110C0B;
+    --hotseat-obsidian: #1C1616;
+    --hotseat-text: #FF5500;
+    --hotseat-accent: #FFD700;
+    --hotseat-border: #DD3300;
+    --hotseat-white: #ffffff9d;
+
+
+    background-color: var(--hotseat-bg) !important;
+    background-image: linear-gradient(45deg, #330800, #110C0B 25%, #330800 50%, #110C0B 75%, #330800) !important;
+    background-size: 200% 200% !important;
+    animation: lava-pulse 15s ease-in-out infinite;
+    font-family: 'Verdana', 'Geneva', sans-serif !important;
+    /* FIX: Removed the overly-aggressive 'color' rule from here. */
+}
+
+.theme-hotseat .bg-gray-100, .theme-hotseat .bg-white, .theme-hotseat .bg-indigo-50, .theme-hotseat .bg-gray-50, .theme-hotseat .bg-gray-200 {
+    background-color: var(--hotseat-obsidian) !important;
+    border: 1px solid var(--hotseat-border) !important;
+    box-shadow: inset 0 0 8px rgba(255, 85, 0, 0.3);
+}
+
+.theme-hotseat .assistant-message {
+    border: 1px solid var(--hotseat-border) !important;
+    box-shadow: 0 0 12px rgba(255, 85, 0, 0.7) !important;
+    border-radius: 4px !important;
+}
+
+
+/* --- TYPOGRAPHY & LAVA EFFECT --- */
+
+/* Establish a default readable text color for the theme */
+.theme-hotseat, .theme-hotseat .prose {
+    color: var(--hotseat-text);
+}
+
+/* LAVA EFFECT: Apply only to paragraphs inside assistant messages */
+.theme-hotseat .assistant-message .prose p {
+    background: linear-gradient(90deg, #FFD700, #FF5500, #DD3300, #330800, #DD3300, #FF5500, #FFD700);
+    background-size: 400% 400%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    /* This MUST be transparent for the background to show through */
+    color: transparent !important; 
+    animation: flow-lava 8s ease-in-out infinite, hot-glow 3s ease-in-out infinite;
+    font-weight: bold;
+}
+
+.theme-hotseat h1, .theme-hotseat h2, .theme-hotseat h3, .theme-hotseat h4 {
+    color: var(--hotseat-accent) !important;
+    text-shadow: 0 0 8px var(--hotseat-white);
+}
+
+/* Ensure links are bright and readable */
+.theme-hotseat .prose a, .theme-hotseat a {
+    color: var(--hotseat-accent) !important;
+    text-shadow: 0 0 5px var(--hotseat-accent);
+}
+
+
+/* --- UI ELEMENT STYLES --- */
+.theme-hotseat button, .theme-hotseat [role="button"], .theme-hotseat textarea, .theme-hotseat select, .theme-hotseat input {
+    color: var(--hotseat-text) !important; /* Keep !important here for UI consistency */
+}
+
+.theme-hotseat button, .theme-hotseat [role="button"] {
+    background-color: transparent !important;
+    border: 1px solid var(--hotseat-border) !important;
+    border-radius: 2px !important;
+    box-shadow: 0 0 6px rgba(255, 85, 0, 0.5);
+    transition: all 0.2s ease;
+}
+
+.theme-hotseat button:hover, .theme-hotseat [role="button"]:hover {
+    background-color: var(--hotseat-accent) !important;
+    color: #000 !important;
+    border-color: var(--hotseat-accent) !important;
+    box-shadow: 0 0 15px var(--hotseat-accent);
+}
+
+.theme-hotseat textarea, .theme-hotseat select, .theme-hotseat input {
+    background-color: #1f1a190e !important;
+    border: 1px solid var(--hotseat-border) !important;
+    border-radius: 2px !important;
+    box-shadow: inset 0 0 8px rgba(255, 85, 0, 0.4);
+}
+
+
+/* --- CODE BLOCK STYLES (PYGMENTS) --- */
+/* These styles will now apply correctly */
+.theme-hotseat .codehilite .c { color: #8C5B48 !important; font-style: italic; } /* Comment */
+.theme-hotseat .codehilite .k { color: #FF2C00 !important; font-weight: bold; } /* Keyword */
+.theme-hotseat .codehilite .o { color: #FFD700 !important; } /* Operator */
+.theme-hotseat .codehilite .s { color: #FFB839 !important; } /* String */
+.theme-hotseat .codehilite .n { color: #FF5500 !important; } /* Name */
+.theme-hotseat .codehilite .na { color: #FFD700 !important; } /* Name.Attribute */
+.theme-hotseat .codehilite .nc { color: #FF2C00 !important; text-decoration: underline; } /* Name.Class */
+.theme-hotseat .codehilite .nf { color: #FFD700 !important; } /* Name.Function */
+.theme-hotseat .codehilite .m { color: #FFB839 !important; } /* Literal.Number */
+.theme-hotseat .codehilite .p { color: #FF7B39 !important; } /* Punctuation */
+.theme-hotseat .codehilite .kt { color: #FFD700 !important; } /* Keyword.Type */
+.theme-hotseat .codehilite .cp { color: #FF2C00 !important; } /* Comment.Preproc */
+
+/* --- INACTIVITY & MODAL STYLES --- */
+.hotseat-tremor { animation: shake 0.5s; }
+#inactivity-timer-bar { position: fixed; bottom: 0; left: 0; width: 100%; height: 5px; background-color: transparent; transition: background-color 1s, box-shadow 1s; }
+#inactivity-timer-bar.glowing { background-color: var(--hotseat-accent); box-shadow: 0 0 15px var(--hotseat-accent); }
+#critical-warning-modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); align-items: center; justify-content: center; }
+#critical-warning-modal .modal-content { background: var(--hotseat-obsidian); padding: 40px; border: 2px solid var(--hotseat-border); box-shadow: 0 0 30px #FF0000; text-align: center; }
+
+/* --- Additional UI Element Styles for Hotseat Theme --- */
+
+/* Style for labels */
+.theme-hotseat label {
+    color: var(--hotseat-accent) !important; /* Make labels stand out with accent color */
+    text-shadow: 0 0 5px var(--hotseat-accent), 0 0 10px var(--hotseat-accent);
+}
+
+/* For the specific div background mentioned previously (e.g., chat bubbles) */
+/* This overrides Tailwind's bg-blue-100 and dark:bg-blue-900 */
+.theme-hotseat .bg-blue-100,
+.theme-hotseat .dark\:bg-blue-900 {
+    background-color: var(--hotseat-obsidian) !important; /* Use the theme's dark obsidian background */
+    border: 1px solid var(--hotseat-border) !important; /* Apply the hotseat border color */
+    box-shadow: inset 0 0 8px rgba(255, 85, 0, 0.3) !important; /* Add a subtle inner glow */
+}
+
+/* For preformatted text (like the example you provided) outside of .codehilite blocks */
+.theme-hotseat pre {
+    background-color: #1A110D !important; /* Dark background consistent with codehilite */
+    color: #FF7B39 !important; /* Text color for preformatted text */
+    border: 1px solid var(--hotseat-border) !important; /* Hotseat border */
+    box-shadow: 0 0 10px rgba(255,85,0,0.5) !important; /* Outer glow */
+    border-radius: 4px; /* Slight roundness */
+    padding: 1em; /* Ensure content padding */
+    overflow-x: auto; /* Handle horizontal overflow for long lines */
+}
+
+.theme-hotseat .codehilite {
+    color: #33080053 !important;
+    background-color: var(--hotseat-obsidian) !important;
+    border: 1px solid var(--hotseat-border) !important;
+    box-shadow: inset 0 0 8px rgba(255, 85, 0, 0.3) !important;
+}
+
+/* For span elements (like the timestamp) */
+.theme-hotseat span {
+    color: var(--hotseat-accent) !important; /* Use accent color for spans */
+    text-shadow: 0 0 3px var(--hotseat-accent); /* Subtle glow */
+}
+
+.theme-hotseat li {
+    color: var(--hotseat-text) !important; /* Main text color */
+    text-shadow: 0 0 3px var(--hotseat-text); /* Subtle glow */
+}
+
+.theme-hotseat strong {
+    color: var(--hotseat-accent) !important; /* Accent color for strong text */
+    text-shadow: 0 0 5px var(--hotseat-accent), 0 0 10px var(--hotseat-white); /* Accent glow */
+}
+
+.theme-hotseat .markdown-content p {
+    color: var(--hotseat-text) !important; /* Main text color */
+    text-shadow: 0 0 2px var(--hotseat-text); /* Subtle glow */
+}
+
+
+/* Enhance styling for the select element (combo-box) */
+/* The base select styles are already present in hotseat.css, this adds focus/hover */
+.theme-hotseat select:focus {
+    outline: none !important; /* Remove default outline */
+    border-color: var(--hotseat-accent) !important; /* Change border color on focus */
+    box-shadow: inset 0 0 10px rgba(255, 215, 0, 0.7), 0 0 15px rgba(255, 215, 0, 0.7) !important; /* Stronger accent glow on focus */
+}
+
+/* Style for the options within the select element */
+.theme-hotseat select option {
+    background-color: var(--hotseat-obsidian) !important; /* Dark background for options */
+    color: var(--hotseat-text) !important; /* Main text color for options */
+    text-shadow: 0 0 2px var(--hotseat-text); /* Subtle glow for options */
+}
+
+/* Style for hovered/selected options (Note: browser dependent, may not work in all browsers consistently) */
+.theme-hotseat select option:checked,
+.theme-hotseat select option:hover {
+    background-color: var(--hotseat-border) !important; /* Highlight with border color on hover/selection */
+    color: #fff !important; /* White text for better contrast on highlight */
+    text-shadow: 0 0 5px #fff; /* White text glow on highlight */
+}

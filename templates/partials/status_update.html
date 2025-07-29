@@ -1,0 +1,5 @@
+{# Expects: instance_id, message, is_error (optional) #}
+<div id="status-{{ instance_id }}"  {# Use passed instance_id directly #}
+     class="mt-2 text-sm {% if is_error %}text-red-600{% else %}text-gray-600{% endif %}">
+    {{ message | default('Status unknown.') }}
+</div>

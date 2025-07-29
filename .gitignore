@@ -1,0 +1,34 @@
+# Environment variables
+.env
+
+# Python generated files
+__pycache__/
+*.pyc
+*.sqlite
+project_context.db
+cache.sqlite
+
+# Chat session data and logs (sensitive/user-specific)
+chat_logs/
+chat_sessions/*.json
+chat_sessions/*.png # Or other uploaded file types
+
+# Node.js dependencies (too large to commit)
+node_modules/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Virtual environment directory
+venv/
+
+# Editor/IDE specific files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Build artifacts
+/dist/
+/build/
