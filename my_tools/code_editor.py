@@ -134,7 +134,7 @@ def apply_code_modification(file_path: str, target_identifier: str, new_code: st
     if not transformer.target_found_and_replaced:
         return json.dumps({'status': 'error', 'message': f"Target '{target_identifier}' not found in {file_path}."})
 
-    # --- NEW DIAGNOSTIC CODE ---
+    # --- DIAGNOSTIC CODE ---
     try:
         modified_code = ast.unparse(new_tree)
     except Exception as e:
@@ -150,7 +150,7 @@ def apply_code_modification(file_path: str, target_identifier: str, new_code: st
             'status': 'error',
             'message': 'Internal Tool Error: Code modification resulted in no changes. The AST transformation failed silently.'
         })
-    # --- END OF NEW DIAGNOSTIC CODE ---
+    # --- END OF DIAGNOSTIC CODE ---
     try:
         modified_code = ast.unparse(new_tree)
         with open(file_path, 'w', encoding='utf-8') as f:
@@ -199,7 +199,7 @@ def refresh_file_representation(file_path: str) -> str:
         cursor = conn.cursor()
         cursor.execute('BEGIN')
 
-        # --- MODIFIED: Use the relative_path for the DELETE operation ---
+        # --- Use the relative_path for the DELETE operation ---
         cursor.execute('DELETE FROM files WHERE path = ?', (relative_path,))
         
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -208,7 +208,7 @@ def refresh_file_representation(file_path: str) -> str:
         _, ext = os.path.splitext(file_path)
 
         if ext == '.py':
-            # --- MODIFIED: Pass the relative_path to the parser to ensure it's stored correctly ---
+            # --- Pass the relative_path to the parser to ensure it's stored correctly ---
             file_details = parse_python_file(relative_path, content)
         else:
             # Handle other file types if necessary, ensuring relative_path is used

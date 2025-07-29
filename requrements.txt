@@ -1,8 +1,22 @@
+
 Flask
-requests
-python-dotenv
-markdown
-Pygments # For code highlighting in markdown
-htmx # You'll download htmx.min.js separately
-google-genai
+beautifulsoup4
 bleach
+chromadb
+google-genai
+google-generativeai
+geopy
+htmx # You'll download htmx.min.js separately
+lxml
+markdown
+openai
+ollama
+openmeteo-requests
+pandas
+protobuf
+Pygments # For code highlighting in markdown
+pymdown-extensions
+python-dotenv
+requests
+requests-cache
+retry-requests

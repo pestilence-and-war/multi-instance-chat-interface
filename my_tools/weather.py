@@ -262,7 +262,7 @@ def get_openmeteo_weather(
         elif request_current: result_data["current_conditions"] = {"message": "Current data requested but not found in API response."}
 
         # --- Process Hourly Data ---
-        # (Implementation remains the same index-based parsing as previous correct version)
+        
         if request_hourly and hasattr(response, 'Hourly') and callable(response.Hourly):
             hourly = response.Hourly()
             if hourly and hourly.VariablesLength() > 0:
@@ -326,7 +326,7 @@ def get_openmeteo_weather(
 
 
         # --- Process Daily Data ---
-        # (Implementation remains the same index-based parsing as previous correct version)
+        
         if request_daily and hasattr(response, 'Daily') and callable(response.Daily):
             daily = response.Daily()
             if daily and daily.VariablesLength() > 0:
@@ -439,7 +439,7 @@ if __name__ == '__main__':
         {"location": ""}, # Invalid input
         {"location": "Zagreb, Croatia", "units":"celsius", "request_types":"current,daily", "past_days":1, "forecast_days":2},
     ]
-    # ... (rest of the test execution logic remains the same) ...
+    
     for i, case in enumerate(test_cases):
         print(f"\n--- Test Case {i+1} ---")
         print(f"Requesting: {case}")
@@ -453,7 +453,7 @@ if __name__ == '__main__':
             print("Formatted Result Status:", parsed_result.get("status"))
             print("Formatted Result (Top Level Keys):", list(parsed_result.keys()))
             if "error" in parsed_result: print("  Error Message:", parsed_result["error"])
-            # ... (optional detail printing logic remains the same) ...
+            
         except json.JSONDecodeError as e: print(f"Error decoding result JSON: {e}")
         except Exception as e: print(f"Error processing result structure: {e}"); print(traceback.format_exc())
         if i < len(test_cases) - 1: time.sleep(1.1)

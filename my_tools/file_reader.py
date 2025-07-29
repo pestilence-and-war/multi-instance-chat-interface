@@ -6,7 +6,6 @@ import sqlite3
 from typing import Dict, Any, Optional
 
 # --- Internal Class for Data Management (Singleton) ---
-# This class remains unchanged as it correctly handles database interactions.
 class _CodebaseManager:
     _instance = None
     _db_file_path = "project_context.db"

@@ -126,7 +126,7 @@ class _CodebaseManager:
             # We get the ID for our next query, but remove it from the final user-facing output.
             function_id = func_details.pop('id')
 
-            # NEW: Query for any directly nested functions of this function.
+            # Query for any directly nested functions of this function.
             nested_functions_cursor = self._execute_query(
                 "SELECT name, signature, start_lineno, end_lineno FROM python_functions WHERE parent_function_id = ?",
                 (function_id,)
