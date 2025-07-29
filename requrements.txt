@@ -20,3 +20,4 @@ python-dotenv
 requests
 requests-cache
 retry-requests
+waitress
