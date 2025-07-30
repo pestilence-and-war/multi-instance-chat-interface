@@ -9,7 +9,7 @@ import api_clients
 API_CLIENT_CLASSES = {
     "OpenRouter": api_clients.openrouter_client.OpenRouterClient,
     "Google": api_clients.google_client.GoogleClient,
-    "Ollama": api_clients.ollma_client.OllamaClient,
+    "Ollama": api_clients.ollama_client.OllamaClient,
     # "OpenAI": openai_client.OpenAIClient,
 }
 DEFAULT_PROVIDER = "Google"
