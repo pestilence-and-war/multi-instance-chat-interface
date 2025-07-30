@@ -599,14 +599,24 @@ def unregister_tool_route(instance_id, tool_name):
 
 @app.route('/chat_sessions/<path:filename>')
 def serve_uploaded_file(filename):
-    # Add basic security check - prevent path traversal
-    safe_path = os.path.normpath(os.path.join('chat_sessions', filename))
-    if not safe_path.startswith(os.path.abspath('chat_sessions')):
+    # The 'chat_sessions' directory, relative to the app's instance path or a configured root
+    upload_folder = 'chat_sessions'
+
+    # Create an absolute path to the requested file
+    file_path = os.path.abspath(os.path.join(upload_folder, filename))
+
+    # Create an absolute path to the directory where uploads are stored
+    upload_dir_abs = os.path.abspath(upload_folder)
+
+    # Security check: Ensure the requested file path is within the upload directory
+    if not file_path.startswith(upload_dir_abs):
         return "Forbidden", 403
+
     # Check if file exists before sending
-    if not os.path.exists(safe_path):
+    if not os.path.exists(file_path):
         return "Not Found", 404
-    return send_from_directory('chat_sessions', filename)
+
+    return send_from_directory(upload_folder, filename)
 
 if __name__ == '__main__':
     # Create directories if they don't exist
