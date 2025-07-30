@@ -2,6 +2,9 @@ import os
 import json
 import sys
 
+#System tool for creaing full project context to LLMs
+#It is the older version of the DB creation tool currently used with tools
+
 def directory_to_json(root_dir=".", output_filename="project_context.json"):
     """
     Converts a directory and its contents to a JSON file, excluding specific

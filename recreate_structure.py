@@ -2,6 +2,7 @@ import os
 import json
 import sys
 
+#Sister tool to create_context.py it uses the created .json file to rebuild the codebase from json representation
 def create_file_structure_from_json(json_filepath="project_context.json", output_dir="."):
     """
     Recreates a file structure from a JSON file.

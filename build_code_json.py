@@ -7,6 +7,8 @@ from datetime import datetime
 import re # For basic CSS parsing
 import traceback # For detailed error logging
 
+#This tool is more advanced than than create_contex, but less advanced than the db version.
+
 # Attempt to import HTML/CSS parsers, print warnings if not available
 try:
     from bs4 import BeautifulSoup
