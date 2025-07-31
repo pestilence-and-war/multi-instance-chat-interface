@@ -134,7 +134,7 @@ def apply_code_modification(file_path: str, target_identifier: str, new_code: st
     if not transformer.target_found_and_replaced:
         return json.dumps({'status': 'error', 'message': f"Target '{target_identifier}' not found in {file_path}."})
 
-    # --- DIAGNOSTIC CODE ---
+    # --- NEW DIAGNOSTIC CODE ---
     try:
         modified_code = ast.unparse(new_tree)
     except Exception as e:
@@ -150,7 +150,7 @@ def apply_code_modification(file_path: str, target_identifier: str, new_code: st
             'status': 'error',
             'message': 'Internal Tool Error: Code modification resulted in no changes. The AST transformation failed silently.'
         })
-    # --- END OF DIAGNOSTIC CODE ---
+    # --- END OF NEW DIAGNOSTIC CODE ---
     try:
         modified_code = ast.unparse(new_tree)
         with open(file_path, 'w', encoding='utf-8') as f:
@@ -199,7 +199,7 @@ def refresh_file_representation(file_path: str) -> str:
         cursor = conn.cursor()
         cursor.execute('BEGIN')
 
-        # --- Use the relative_path for the DELETE operation ---
+        # --- MODIFIED: Use the relative_path for the DELETE operation ---
         cursor.execute('DELETE FROM files WHERE path = ?', (relative_path,))
         
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -208,7 +208,7 @@ def refresh_file_representation(file_path: str) -> str:
         _, ext = os.path.splitext(file_path)
 
         if ext == '.py':
-            # --- Pass the relative_path to the parser to ensure it's stored correctly ---
+            # --- MODIFIED: Pass the relative_path to the parser to ensure it's stored correctly ---
             file_details = parse_python_file(relative_path, content)
         else:
             # Handle other file types if necessary, ensuring relative_path is used
@@ -233,3 +233,73 @@ def refresh_file_representation(file_path: str) -> str:
     finally:
         if conn:
             conn.close()
+
+def create_or_update_file_safely(file_path: str, content: str, overwrite: bool = False) -> str:
+    """
+    (High-Cost) Safely creates a new file or updates an existing one with provided content.
+
+    This tool is the recommended way to write files. It includes multiple safety checks:
+    1.  Path Safety: Ensures the write operation is within the project directory.
+    2.  Overwrite Protection: Prevents accidental overwriting of existing files unless explicitly allowed.
+    3.  Syntax Validation: Checks for valid Python syntax before writing to '.py' files.
+    4.  State Synchronization: Automatically updates the project's database after a successful write.
+
+    Args:
+        file_path (str): The path to the file to create or update.
+        content (str): The content to write to the file.
+        overwrite (bool): Set to True to allow overwriting an existing file. Defaults to False.
+
+    Returns:
+        A JSON string with the status of the operation.
+    """
+    from my_tools.path_security import is_path_safe
+    import json
+    import os
+    import ast
+
+    if not is_path_safe(file_path):
+        return json.dumps({
+            'status': 'error',
+            'message': 'Security Error: Path is outside the allowed project directory.'
+        })
+
+    if os.path.exists(file_path) and not overwrite:
+        return json.dumps({
+            'status': 'error',
+            'message': f'File "{file_path}" already exists. Set overwrite=True to allow modification.'
+        })
+
+    _, ext = os.path.splitext(file_path)
+    if ext == '.py':
+        try:
+            ast.parse(content)
+        except SyntaxError as e:
+            return json.dumps({
+                'status': 'error',
+                'message': f'Syntax error in new Python code: {e}'
+            })
+
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except Exception as e:
+        return json.dumps({
+            'status': 'error',
+            'message': f'An unexpected error occurred during file write: {e}'
+        })
+
+    # After a successful write, refresh the database representation.
+    refresh_status = refresh_file_representation(file_path)
+    status_data = json.loads(refresh_status)
+
+    if status_data['status'] == 'success':
+        return json.dumps({
+            'status': 'success',
+            'message': f"Successfully wrote to '{file_path}' and updated the project database."
+        })
+    else:
+        # If the refresh fails, we should report it as a partial success/warning.
+        return json.dumps({
+            'status': 'warning',
+            'message': f"Successfully wrote to '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
+        })
