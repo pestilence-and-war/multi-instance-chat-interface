@@ -172,6 +172,85 @@ def apply_code_modification(file_path: str, target_identifier: str, new_code: st
             'status': 'warning',
             'message': f"Successfully modified '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
         }, indent=2)
+    
+
+def find_and_replace_code_block(file_path: str, start_line_content: str, end_line_content: str, new_code_block: str) -> str:
+    """
+    (Medium-Cost) Finds a code block by its start and end lines and replaces it.
+
+    This tool is a more robust alternative to diffing. It locates a code block
+    by finding the first occurrence of the exact start_line_content and end_line_content,
+    then replaces the entire block (inclusive) with the new_code_block.
+    It automatically syncs the database on success.
+
+    Args:
+        file_path (str): The absolute path to the file to modify.
+        start_line_content (str): The exact text of the line where the block to be replaced begins.
+        end_line_content (str): The exact text of the line where the block to be replaced ends.
+        new_code_block (str): The new code to insert in place of the old block.
+
+    Returns:
+        A JSON string with the status of the operation.
+    """
+    import json
+    import os
+    # from .parsing_utils import refresh_file_representation
+    from my_tools.path_security import is_path_safe
+
+    if not is_path_safe(file_path):
+        return json.dumps({
+            'status': 'error',
+            'message': 'Security Error: Path is outside the allowed project directory.'
+        })
+    if not os.path.exists(file_path):
+        return json.dumps({'status': 'error', 'message': f'File not found: {file_path}.'})
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        start_index = -1
+        end_index = -1
+
+        # Find the start line index
+        for i, line in enumerate(lines):
+            if start_line_content.strip() == line.strip():
+                start_index = i
+                break
+
+        if start_index == -1:
+            return json.dumps({'status': 'error', 'message': f'Could not find the start line: "{start_line_content}"'})
+
+        # Find the end line index, starting from the found start_index
+        for i in range(start_index, len(lines)):
+            line = lines[i]
+            if end_line_content.strip() == line.strip():
+                end_index = i
+                break
+
+        if end_index == -1:
+            return json.dumps({'status': 'error', 'message': f'Could not find the end line: "{end_line_content}" after the start line.'})
+
+        # Construct the new list of lines
+        new_lines = lines[:start_index]
+        new_lines.append(new_code_block + '\n') # Ensure the new block ends with a newline
+        new_lines.extend(lines[end_index + 1:])
+
+        # Write the modified content back to the file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.writelines(new_lines)
+
+    except Exception as e:
+        return json.dumps({'status': 'error', 'message': f'An unexpected error occurred during find and replace: {e}'})
+
+    # --- Synchronize the Database ---
+    refresh_status_json = refresh_file_representation(file_path)
+    status_data = json.loads(refresh_status_json)
+
+    if status_data['status'] == 'success':
+        return json.dumps({'status': 'success', 'message': f"Successfully replaced code block in '{file_path}' and updated the database."}, indent=2)
+    else:
+        return json.dumps({'status': 'warning', 'message': f"Successfully replaced code block in '{file_path}', but failed to update the database. Reason: {status_data['message']}"}, indent=2)
 
 def refresh_file_representation(file_path: str) -> str:
     """
@@ -317,78 +396,3 @@ def create_or_update_file_safely(file_path: str, content: str, overwrite: bool =
             'status': 'warning',
             'message': f"Successfully wrote to '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
         })
-
-def apply_diff(file_path: str, diff_content: str) -> str:
-    """
-    (High-Cost) Applies a diff/patch to a file and automatically syncs the database.
-
-    This is the recommended tool for making targeted, granular changes to existing code.
-    It takes a standard diff format, applies it to the file, and then immediately
-    calls 'refresh_file_representation' to ensure the project's structural database
-    is perfectly in sync with the new file content.
-
-    Args:
-        file_path (str): The absolute path to the file that needs to be patched.
-        diff_content (str): A string containing the patch data in a standard unified diff format.
-
-    Returns:
-        A JSON string with the status of the operation, indicating success,
-        warning (if DB sync fails), or error.
-    """
-    import json
-    import os
-    import patch
-    from my_tools.path_security import is_path_safe
-    #from my_tools.parsing_utils import refresh_file_representation
-
-    if not is_path_safe(file_path):
-        return json.dumps({
-            'status': 'error',
-            'message': 'Security Error: Path is outside the allowed project directory.'
-        })
-
-    if not os.path.exists(file_path):
-        return json.dumps({
-            'status': 'error',
-            'message': f'File not found: {file_path}. A diff can only be applied to an existing file.'
-        })
-
-    # 2. --- Apply the Diff to the File ---
-    try:
-        # Create a patch set object from the diff string.
-        # We must encode the string to bytes for the library.
-        patch_set = patch.fromstring(diff_content.encode('utf-8'))
-
-        # The 'root' argument tells the patch utility where to find the file.
-        # We apply it to the file's containing directory.
-        if patch_set.apply(strip=0, root=os.path.dirname(file_path)):
-            # The 'apply' method returns True on success
-            pass # Continue to the next step
-        else:
-            # The diff did not apply cleanly.
-            return json.dumps({
-                'status': 'error',
-                'message': f'Failed to apply diff to "{file_path}". The patch may not match the file content.'
-            })
-    except Exception as e:
-        # This catches errors from the patch library itself (e.g., malformed diff)
-        return json.dumps({
-            'status': 'error',
-            'message': f'An error occurred while applying the patch: {e}'
-        })
-    # 3. --- Synchronize the Database ---
-    # The file on disk is now modified. We MUST update its database representation.
-    refresh_status_json = refresh_file_representation(file_path)
-    status_data = json.loads(refresh_status_json)
-
-    if status_data['status'] == 'success':
-        return json.dumps({
-            'status': 'success',
-            'message': f"Successfully applied diff to '{file_path}' and updated the project database."
-        }, indent=2)
-    else:
-        # The file was patched, but the DB sync failed. This is a WARNING.
-        return json.dumps({
-            'status': 'warning',
-            'message': f"Successfully applied diff to '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
-        }, indent=2)
