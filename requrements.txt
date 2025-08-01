@@ -13,6 +13,7 @@ openai
 ollama
 openmeteo-requests
 pandas
+patch-ng
 protobuf
 Pygments # For code highlighting in markdown
 pymdown-extensions

@@ -95,8 +95,7 @@ def apply_code_modification(file_path: str, target_identifier: str, new_code: st
     (High-Cost) Modifies a Python file by replacing a function or class with new code.
 
     This tool operates directly on the file system using an Abstract Syntax Tree (AST)
-    for precise modification. After using this tool, you MUST call 'refresh_file_representation'
-    on the same file_path to update the project's database.
+    for modifications of whole functions or classes.
 
     Args:
         file_path (str): The path to the Python file to modify.
@@ -157,11 +156,26 @@ def apply_code_modification(file_path: str, target_identifier: str, new_code: st
             f.write(modified_code)
     except Exception as e:
         return json.dumps({'status': 'error', 'message': f'Failed to write modified code to {file_path}: {e}'})
-    return json.dumps({'status': 'success', 'message': f"File '{file_path}' modified. You MUST now call 'refresh_file_representation' to sync the database."}, indent=2)
+
+    # After a successful write, refresh the database representation.
+    refresh_status_json = refresh_file_representation(file_path)
+    status_data = json.loads(refresh_status_json)
+
+    if status_data['status'] == 'success':
+        return json.dumps({
+            'status': 'success',
+            'message': f"Successfully modified '{file_path}' and updated the project database."
+        }, indent=2)
+    else:
+        # The file was written, but the DB sync failed. This is a WARNING.
+        return json.dumps({
+            'status': 'warning',
+            'message': f"Successfully modified '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
+        }, indent=2)
 
 def refresh_file_representation(file_path: str) -> str:
     """
-    (High-Cost) Updates the database representation for a single file that has been changed.
+    (Low-Cost) Updates the database representation for a single file that has been changed.
 
     This tool removes the old database entry and re-parses the live file to insert
     the new, correct representation. It is a necessary follow-up to 'apply_code_modification'.
@@ -303,3 +317,78 @@ def create_or_update_file_safely(file_path: str, content: str, overwrite: bool =
             'status': 'warning',
             'message': f"Successfully wrote to '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
         })
+
+def apply_diff(file_path: str, diff_content: str) -> str:
+    """
+    (High-Cost) Applies a diff/patch to a file and automatically syncs the database.
+
+    This is the recommended tool for making targeted, granular changes to existing code.
+    It takes a standard diff format, applies it to the file, and then immediately
+    calls 'refresh_file_representation' to ensure the project's structural database
+    is perfectly in sync with the new file content.
+
+    Args:
+        file_path (str): The absolute path to the file that needs to be patched.
+        diff_content (str): A string containing the patch data in a standard unified diff format.
+
+    Returns:
+        A JSON string with the status of the operation, indicating success,
+        warning (if DB sync fails), or error.
+    """
+    import json
+    import os
+    import patch
+    from my_tools.path_security import is_path_safe
+    #from my_tools.parsing_utils import refresh_file_representation
+
+    if not is_path_safe(file_path):
+        return json.dumps({
+            'status': 'error',
+            'message': 'Security Error: Path is outside the allowed project directory.'
+        })
+
+    if not os.path.exists(file_path):
+        return json.dumps({
+            'status': 'error',
+            'message': f'File not found: {file_path}. A diff can only be applied to an existing file.'
+        })
+
+    # 2. --- Apply the Diff to the File ---
+    try:
+        # Create a patch set object from the diff string.
+        # We must encode the string to bytes for the library.
+        patch_set = patch.fromstring(diff_content.encode('utf-8'))
+
+        # The 'root' argument tells the patch utility where to find the file.
+        # We apply it to the file's containing directory.
+        if patch_set.apply(strip=0, root=os.path.dirname(file_path)):
+            # The 'apply' method returns True on success
+            pass # Continue to the next step
+        else:
+            # The diff did not apply cleanly.
+            return json.dumps({
+                'status': 'error',
+                'message': f'Failed to apply diff to "{file_path}". The patch may not match the file content.'
+            })
+    except Exception as e:
+        # This catches errors from the patch library itself (e.g., malformed diff)
+        return json.dumps({
+            'status': 'error',
+            'message': f'An error occurred while applying the patch: {e}'
+        })
+    # 3. --- Synchronize the Database ---
+    # The file on disk is now modified. We MUST update its database representation.
+    refresh_status_json = refresh_file_representation(file_path)
+    status_data = json.loads(refresh_status_json)
+
+    if status_data['status'] == 'success':
+        return json.dumps({
+            'status': 'success',
+            'message': f"Successfully applied diff to '{file_path}' and updated the project database."
+        }, indent=2)
+    else:
+        # The file was patched, but the DB sync failed. This is a WARNING.
+        return json.dumps({
+            'status': 'warning',
+            'message': f"Successfully applied diff to '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
+        }, indent=2)
