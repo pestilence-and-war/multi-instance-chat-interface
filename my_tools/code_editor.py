@@ -396,3 +396,63 @@ def create_or_update_file_safely(file_path: str, content: str, overwrite: bool =
             'status': 'warning',
             'message': f"Successfully wrote to '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
         })
+
+def delete_file_representation(file_path: str) -> str:
+    """
+    (Internal-Facing) Deletes a file's representation from the project database.
+
+    This function is critical for keeping the database synchronized when files are
+    deleted from the file system.
+
+    Args:
+        file_path (str): The path of the file to remove from the database.
+
+    Returns:
+        A JSON string with the status of the database operation.
+    """
+    from my_tools.path_security import get_db_path, get_project_root
+    import sqlite3
+    import json
+    import os
+
+    db_path = get_db_path()
+    project_root = get_project_root()
+    if not db_path or not project_root:
+        return json.dumps({'status': 'error', 'message': 'Database path or project root not configured.'})
+
+    # Use relative path for database operations
+    relative_path = os.path.relpath(os.path.abspath(file_path), project_root)
+
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # First, get the file ID
+        cursor.execute("SELECT id FROM files WHERE path = ?", (relative_path,))
+        row = cursor.fetchone()
+
+        if not row:
+            return json.dumps({'status': 'warning', 'message': f"File '{relative_path}' not found in database; no action taken."})
+
+        file_id = row[0]
+
+        # Delete associated records from child tables (important for foreign key constraints)
+        cursor.execute("DELETE FROM python_imports WHERE file_id = ?", (file_id,))
+        cursor.execute("DELETE FROM python_classes WHERE file_id = ?", (file_id,))
+        cursor.execute("DELETE FROM python_functions WHERE file_id = ?", (file_id,))
+        # Add other child table deletions here if you have more (html, css, etc.)
+
+        # Finally, delete the file record itself
+        cursor.execute("DELETE FROM files WHERE id = ?", (file_id,))
+
+        conn.commit()
+        return json.dumps({'status': 'success', 'message': f"Successfully deleted '{relative_path}' from the project database."})
+
+    except sqlite3.Error as e:
+        if conn:
+            conn.rollback()
+        return json.dumps({'status': 'error', 'message': f'An error occurred during database deletion for {relative_path}: {e}'})
+    finally:
+        if conn:
+            conn.close()
