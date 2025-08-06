@@ -1,61 +1,27 @@
+# my_tools/jailed_shell_tool.py
+
 import subprocess
 import json
 import os
-import shlex
-from my_tools.path_security import get_project_root # Use your existing helper
+from my_tools.path_security import get_project_root
 
-def execute_jailed_command(command: str) -> str:
+def _run_jailed_command(command: str, working_dir: str) -> str:
     """
-    (High-Risk) Executes a command within a highly restricted, sandboxed PowerShell environment.
-
-    This tool operates within a JEA (Just Enough Administration) endpoint, which strictly
-    whitelists allowed commands. The working directory is dynamically and safely determined
-    by the CODEBASE_DB_PATH environment variable.
-
-    Args:
-        command (str): The PowerShell command to execute (e.g., "ls", "New-Item test.txt").
-
-    Returns:
-        A JSON string containing the command's stdout and stderr.
+    (Internal Engine) Executes a command in the JEA sandbox.
+    This function is NOT a tool for the LLM. It assumes the process
+    is already running as the correct user ('JeaToolUser').
     """
-    # The parent directory where all sandboxed projects must reside.
-    # This MUST match the directory you configured in PowerShell.
-    SANDBOX_ROOT = "C:\\SandboxedWorkspaces"
-
-    # The name of the JEA endpoint we registered.
-    JEA_ENDPOINT_NAME = "JailedPowerShell"
-
-    # 1. Determine the project directory using your existing, trusted function.
-    project_directory = get_project_root()
-    if not project_directory:
-        return json.dumps({
-            'status': 'error',
-            'message': 'Could not determine project root. Is CODEBASE_DB_PATH set in your .env file?'
-        }, indent=2)
-
-    # 2. **CRITICAL SECURITY CHECK**: Ensure the determined path is within our sandbox.
-    # We resolve both paths to their canonical form to prevent traversal attacks (e.g., '..\\').
-    safe_root = os.path.realpath(SANDBOX_ROOT)
-    requested_path = os.path.realpath(project_directory)
-
-    if os.path.commonpath([safe_root, requested_path]) != safe_root:
-        return json.dumps({
-            'status': 'security_error',
-            'message': f"FATAL: The project path '{requested_path}' is outside the designated sandbox root '{safe_root}'. Operation aborted."
-        }, indent=2)
-
-    # 3. Construct and execute the PowerShell command.
-    # The inner command is enclosed in single quotes to be treated as a literal string.
     escaped_command = command.replace("'", "''")
 
-    # We now pass the DYNAMIC, VALIDATED project directory to Set-Location.
-    full_ps_command = (
-        f"Enter-PSSession -ConfigurationName {JEA_ENDPOINT_NAME} -Command {{"
-        f"Set-Location -LiteralPath '{requested_path}';" # <-- The dynamic part!
-        f" {escaped_command} "
-        f"}}"
-    )
-
+    # This is the simplest possible command. No credentials needed because our
+    # identity is already correct.
+    full_ps_command = f"""
+        Invoke-Command -ComputerName localhost -ConfigurationName JailedPowerShell -ScriptBlock {{
+            Set-Location -LiteralPath '{working_dir}';
+            {escaped_command}
+        }}
+    """
+    
     final_command = ["powershell.exe", "-NoProfile", "-Command", full_ps_command]
 
     try:
@@ -66,20 +32,17 @@ def execute_jailed_command(command: str) -> str:
             encoding='utf-8',
             timeout=30
         )
-        return json.dumps({
-            'status': 'success',
-            'stdout': process.stdout.strip(),
-            'stderr': process.stderr.strip(),
-            'working_directory': requested_path
-        }, indent=2)
+        stdout_str = process.stdout.strip()
+        stderr_str = process.stderr.strip()
 
-    except subprocess.TimeoutExpired:
+        if "Access is denied" in stderr_str:
+            stderr_str += "\\n\\n[HELPFUL_ERROR] 'Access Denied' usually means the script is NOT running as 'JeaToolUser'. Please use the 'run_app_as_jea_user.bat' script to launch the application."
+
         return json.dumps({
-            'status': 'error',
-            'message': 'Command timed out after 30 seconds.'
+            'status': 'success' if not stderr_str else 'error',
+            'stdout': stdout_str,
+            'stderr': stderr_str,
+            'working_directory': working_dir
         }, indent=2)
     except Exception as e:
-        return json.dumps({
-            'status': 'error',
-            'message': f'An unexpected error occurred: {e}'
-        }, indent=2)
+        return json.dumps({'status': 'error', 'message': f'An unexpected error occurred: {e}'}, indent=2)

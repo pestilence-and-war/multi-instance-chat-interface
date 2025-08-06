@@ -14,6 +14,7 @@ chat_logs/
 chat_sessions/*.json
 chat_sessions/*.png # Or other uploaded file types
 chat_sessions/archive/*.json
+server_logs.txt
 
 # Node.js dependencies (too large to commit)
 node_modules/
