@@ -1,104 +1,61 @@
 # my_tools/code_searcher.py
 
 import json
-import os
-import sqlite3
-from typing import Dict, Any, Optional, List
+from typing import Optional, Dict, Any
 
-# --- Internal Class for Data Management (Singleton) ---
-class _CodebaseManager:
-    _instance = None
-    _db_file_path = "project_context.db"
+from my_tools.codebase_manager import _CodebaseManager
 
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super(_CodebaseManager, cls).__new__(cls)
-            cls._instance.conn = None
-            cls._instance._connect_to_db()
-        return cls._instance
+# --- Helper Function (Business Logic) ---
 
-    def _connect_to_db(self):
-        db_path = os.environ.get("CODEBASE_DB_PATH", self.__class__._db_file_path)
-        if not os.path.exists(db_path):
-            self.conn = None
-            return
-        try:
-            # Connect in read-only mode for safety. URI=True allows mode=ro.
-            db_uri = f"file:{os.path.abspath(db_path)}?mode=ro"
-            self.conn = sqlite3.connect(db_uri, uri=True, check_same_thread=False)
-            self.conn.row_factory = sqlite3.Row
-        except sqlite3.Error as e:
-            print(f"Error connecting to DB in read-only mode: {e}. Falling back to read/write.")
-            try:
-                self.conn = sqlite3.connect(db_path, check_same_thread=False)
-                self.conn.row_factory = sqlite3.Row
-            except sqlite3.Error as e_fallback:
-                print(f"Fatal error connecting to database '{db_path}': {e_fallback}")
-                self.conn = None
+def _helper_search_code(manager: _CodebaseManager, search_query: str, file_path: Optional[str], case_sensitive: bool) -> Dict[str, Any]:
+    """
+    Performs the core logic of fetching file content and searching for a term.
+    """
+    # NOTE: Using Python to search line-by-line is not the most performant method for large
+    # codebases. A production system would likely use a full-text search engine like SQLite's FTS5.
+    # This implementation maintains the original tool's functionality.
 
-    def _execute_query(self, query: str, params: tuple = ()):
-        if not self.conn:
-            return None
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(query, params)
-            return cursor
-        except sqlite3.Error as e:
-            print(f"Database query error: {e}")
-            return None
+    sql = "SELECT path, full_content FROM files WHERE full_content IS NOT NULL"
+    sql_params = []
+    if file_path:
+        sql += " AND path = ?"
+        sql_params.append(file_path)
 
-    def _internal_search_code(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        query = params.get("search_query")
-        file_path = params.get("file_path")
-        case_sensitive = params.get("case_sensitive", False)
+    cursor = manager._execute_read_query(sql, tuple(sql_params))
+    if not cursor:
+        return {"error": "Database query failed. The database might be unavailable.", "status": "error_db_query"}
 
-        # This check is now in the public function, but internal check is good practice
-        if not query:
-            return {"error": "Missing 'search_query' parameter.", "status": "error_missing_param"}
+    results = []
+    search_term = search_query if case_sensitive else search_query.lower()
 
-        # NOTE: Using LIKE is slow for large datasets. A real-world production system
-        # would use SQLite's FTS5 (Full-Text Search) extension for this.
-        # This implementation is for correctness and simplicity based on the original tool.
-        sql = "SELECT path, full_content FROM files WHERE full_content IS NOT NULL"
-        sql_params = []
-        if file_path:
-            sql += " AND path = ?"
-            sql_params.append(file_path)
+    all_rows = cursor.fetchall()
+    # If a file_path was specified but we got no rows, the file doesn't exist or has no searchable content.
+    if file_path and not all_rows:
+        return {"file_path": file_path, "error": "File not found or has no searchable content.", "status": "error_not_found"}
 
-        cursor = self._execute_query(sql, tuple(sql_params))
-        if not cursor:
-            return {"error": "Database query failed.", "status": "error_db_query"}
+    for row in all_rows:
+        content, current_fp = row["full_content"], row["path"]
+        if not isinstance(content, str):
+            continue
 
-        results = []
-        search_term = query if case_sensitive else query.lower()
+        lines = content.splitlines()
+        for i, line_text in enumerate(lines):
+            line_to_search = line_text if case_sensitive else line_text.lower()
+            if search_term in line_to_search:
+                results.append({
+                    "file_path": current_fp,
+                    "line_number": i + 1,
+                    "line_content": line_text.strip()
+                })
 
-        all_rows = cursor.fetchall()
-        # If a file_path was specified but we got no rows, the file doesn't exist or has no content.
-        if file_path and not all_rows:
-            return {"file_path": file_path, "error": "File not found or has no searchable content.", "status": "error_not_found"}
+    return {
+        "query": search_query,
+        "file_path_filter": file_path,
+        "case_sensitive": case_sensitive,
+        "results": results,
+        "status": "success"
+    }
 
-        for row in all_rows:
-            content, current_fp = row["full_content"], row["path"]
-            if not isinstance(content, str):
-                continue
-
-            lines = content.splitlines()
-            for i, line_text in enumerate(lines):
-                line_to_search = line_text if case_sensitive else line_text.lower()
-                if search_term in line_to_search:
-                    results.append({
-                        "file_path": current_fp,
-                        "line_number": i + 1,
-                        "line_content": line_text.strip()
-                    })
-
-        return {
-            "query": query,
-            "file_path_filter": file_path,
-            "case_sensitive": case_sensitive,
-            "results": results,
-            "status": "success"
-        }
 
 # --- Public Tool Function ---
 def search_code(
@@ -116,55 +73,43 @@ def search_code(
     @param file_path (string): The relative path to a specific file to limit the search to. If omitted, all files will be searched. Example: "src/main.py".
     @param case_sensitive (boolean): Specifies if the search should be case-sensitive. Defaults to False (case-insensitive).
     """
-    manager = _CodebaseManager()
-    if not manager.conn:
-        return json.dumps({"error": "Database connection not available. Please run the context creation script.", "status": "error_no_db"})
-
     if not search_query:
-        return json.dumps({"error": "Missing required parameter 'search_query'.", "status": "error_missing_param"})
+        return json.dumps({"error": "Missing required parameter 'search_query'.", "status": "error_missing_param"}, indent=2)
 
-    params = {
-        "search_query": search_query,
-        "file_path": file_path,
-        "case_sensitive": case_sensitive
-    }
-    result_dict = manager._internal_search_code(params)
+    manager = _CodebaseManager()
+    result_dict = _helper_search_code(manager, search_query, file_path, case_sensitive)
 
     return json.dumps(result_dict, indent=2)
 
 if __name__ == '__main__':
+    import os
     print("--- Testing CodeSearcher Tool ---")
-    db_path = os.environ.get("CODEBASE_DB_PATH", "project_context.db")
+
+    workspace_dir = os.environ.get("CODEBASE_DB_PATH", ".")
+    db_path = os.path.join(workspace_dir, "project_context.db")
+
     if not os.path.exists(db_path):
-        print(f"\nERROR: Database file '{db_path}' not found.")
+        print(f"\nERROR: Database file '{os.path.abspath(db_path)}' not found.")
         print("Please run the database creation script first.")
     else:
-        print(f"Using existing database: '{db_path}'")
-        test_file = "my_tools/codebase_query_tool.py"
+        print(f"Using database found at: '{os.path.abspath(db_path)}'")
 
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM files WHERE path=?", (test_file,))
-        file_exists = cursor.fetchone()[0] > 0
-        conn.close()
-
-        if not file_exists:
-             print(f"\nWARNING: The test file '{test_file}' was not found in your database.")
-             print("Tests may fail. Please edit the 'test_file' variable.")
+        # Use a file that is known to be in the database from previous refactoring steps.
+        test_file = "my_tools/python_analyzer.py"
 
         test_calls = [
-            # 1. Broad, case-insensitive search across all files
-            {"search_query": "database"},
-            # 2. Broad, case-sensitive search across all files
-            {"search_query": "CodebaseManager", "case_sensitive": True},
+            # 1. Broad, case-insensitive search for a common term
+            {"search_query": "manager"},
+            # 2. Broad, case-sensitive search
+            {"search_query": "_CodebaseManager", "case_sensitive": True},
             # 3. Focused, case-insensitive search in a specific file
             {"search_query": "cursor", "file_path": test_file},
-            # 4. Focused, case-sensitive search for a term that might not exist in that case
+            # 4. Focused, case-sensitive search for a term that won't be found in that case
             {"search_query": "CURSOR", "file_path": test_file, "case_sensitive": True},
             # 5. Search in a file that does not exist
             {"search_query": "test", "file_path": "non_existent_file.py"},
             # 6. Search for a query that likely won't be found
-            {"search_query": "supercalifragilisticexpialidocious"},
+            {"search_query": "a_very_unlikely_search_term_xyz123"},
             # 7. Test missing search_query parameter
             {"search_query": ""},
         ]
@@ -174,7 +119,11 @@ if __name__ == '__main__':
             result_json_str = search_code(**params)
 
             try:
+                # Truncate long results for cleaner test output
                 parsed_result = json.loads(result_json_str)
+                if parsed_result.get("status") == "success" and "results" in parsed_result:
+                    if len(parsed_result["results"]) > 5:
+                        parsed_result["results"] = parsed_result["results"][:5] + [{"...": "truncated for display"}]
                 print(json.dumps(parsed_result, indent=2))
             except json.JSONDecodeError:
                 print("ERROR: Result is not valid JSON!")

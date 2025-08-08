@@ -1,14 +1,15 @@
-# =========================================================================
-#  SafeExecutor.ps1 (Final Corrected Version)
-# =========================================================================
+# my_tools/SafeExecutor.ps1
 
-# The command to run is passed as the first argument.
 param(
+    # <<< FIX: Added a mandatory parameter for the workspace path.
+    [Parameter(Mandatory=$true)]
+    [string]$WorkspacePath,
+
+    [Parameter(Mandatory=$true)]
     [string]$CommandToRun
 )
 
 try {
-    # Define the explicit list of allowed command verbs.
     $AllowedCommands = @(
         'Get-ChildItem', 'Resolve-Path', 'Test-Path',
         'Get-Content',
@@ -17,30 +18,18 @@ try {
         'Get-Command'
     )
 
-    # Force the starting location to be the sandbox root.
-    # The JeaToolUser's OS permissions will prevent access outside of this.
-    Set-Location -Path "C:\SandboxedWorkspaces" -ErrorAction Stop
+    # <<< FIX: Force the starting location to the correct project workspace.
+    Set-Location -Path $WorkspacePath -ErrorAction Stop
 
-
-    # --- THIS IS THE FIX ---
-    # We now correctly parse the command string to get the command "verb".
-    # We split the string by spaces and take the very first element.
-    # This correctly isolates "New-Item" from the rest of the command.
     $CommandVerb = ($CommandToRun.Split(' ')[0])
-    # --- END OF FIX ---
 
-
-    # Check if the verb is in our whitelist.
     if ($CommandVerb -in $AllowedCommands) {
-        # If it's allowed, execute the full command string and pass its output through.
         Invoke-Expression -Command $CommandToRun
     } else {
-        # If not allowed, throw a clear security error.
         throw "Security Error: The command '$CommandVerb' is not in the allowed list."
     }
 }
 catch {
-    # If anything goes wrong, write the error to the error stream and exit.
     Write-Error -Message $_.Exception.Message
     exit 1
 }

@@ -1,84 +1,46 @@
 # my_tools/javascript_analyzer.py
 
 import json
-import os
-import sqlite3
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
-# --- Internal Class for Data Management (Singleton) ---
-class _CodebaseManager:
-    _instance = None
-    _db_file_path = "project_context.db"
+from my_tools.codebase_manager import _CodebaseManager
 
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super(_CodebaseManager, cls).__new__(cls)
-            cls._instance.conn = None
-            cls._instance._connect_to_db()
-        return cls._instance
+# --- Helper Functions (Business Logic) ---
 
-    def _connect_to_db(self):
-        db_path = os.environ.get("CODEBASE_DB_PATH", self.__class__._db_file_path)
-        if not os.path.exists(db_path):
-            self.conn = None
-            return
-        try:
-            db_uri = f"file:{os.path.abspath(db_path)}?mode=ro"
-            self.conn = sqlite3.connect(db_uri, uri=True, check_same_thread=False)
-            self.conn.row_factory = sqlite3.Row
-        except sqlite3.Error as e:
-            print(f"Error connecting to DB in read-only mode: {e}. Falling back to read/write.")
-            try:
-                self.conn = sqlite3.connect(db_path, check_same_thread=False)
-                self.conn.row_factory = sqlite3.Row
-            except sqlite3.Error as e_fallback:
-                print(f"Fatal error connecting to database '{db_path}': {e_fallback}")
-                self.conn = None
+def _helper_get_file_id(manager: _CodebaseManager, file_path: str) -> Optional[int]:
+    """Given a file path, queries the DB for its unique ID."""
+    cursor = manager._execute_read_query("SELECT id FROM files WHERE path = ?", (file_path,))
+    if cursor:
+        row = cursor.fetchone()
+        return row['id'] if row else None
+    return None
 
-    def _execute_query(self, query: str, params: tuple = ()):
-        if not self.conn:
-            return None
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(query, params)
-            return cursor
-        except sqlite3.Error as e:
-            print(f"Database query error: {e}")
-            return None
+def _helper_list_javascript_constructs(manager: _CodebaseManager, file_path: str, construct_type: Optional[str]) -> Dict[str, Any]:
+    """Helper to retrieve a list of constructs for a given JavaScript file."""
+    file_id = _helper_get_file_id(manager, file_path)
+    if file_id is None:
+        return {"file_path": file_path, "error": "File not found or DB connection failed.", "status": "error_not_found"}
 
-    def _get_file_id(self, file_path: str) -> Optional[int]:
-        if not file_path: return None
-        cursor = self._execute_query("SELECT id FROM files WHERE path = ?", (file_path,))
-        if cursor:
-            row = cursor.fetchone()
-            return row['id'] if row else None
-        return None
+    query = "SELECT name, construct_type, start_lineno, end_lineno FROM javascript_constructs WHERE file_id = ?"
+    params = [file_id]
+    if construct_type:
+        query += " AND construct_type = ?"
+        params.append(construct_type)
 
-    def _internal_list_javascript_constructs(self, file_path: str, construct_type: Optional[str]) -> Dict[str, Any]:
-        file_id = self._get_file_id(file_path)
-        if not file_id:
-            return {"file_path": file_path, "error": "File not found.", "status": "error_not_found"}
+    query += " ORDER BY start_lineno"
 
-        query = "SELECT name, construct_type, start_lineno, end_lineno FROM javascript_constructs WHERE file_id = ?"
-        params = [file_id]
-        if construct_type:
-            query += " AND construct_type = ?"
-            params.append(construct_type)
+    cursor = manager._execute_read_query(query, tuple(params))
+    if not cursor:
+        return {"error": "DB query failed for JavaScript constructs.", "status": "error_db_query"}
 
-        query += " ORDER BY start_lineno"
+    constructs = [dict(row) for row in cursor.fetchall()]
 
-        cursor = self._execute_query(query, tuple(params))
-        if not cursor:
-            return {"error": "DB query failed for JavaScript constructs.", "status": "error_db_query"}
-
-        constructs = [dict(row) for row in cursor.fetchall()]
-
-        return {
-            "file_path": file_path,
-            "filter": construct_type or "all",
-            "constructs": constructs,
-            "status": "success"
-        }
+    return {
+        "file_path": file_path,
+        "filter": construct_type or "all",
+        "constructs": constructs,
+        "status": "success"
+    }
 
 # --- Public Tool Function ---
 
@@ -94,37 +56,47 @@ def list_javascript_constructs(file_path: str, construct_type: Optional[str] = N
         Valid types include: 'function', 'class', 'import', 'export'.
         If omitted, all recognized constructs are returned.
     """
-    manager = _CodebaseManager()
-    if not manager.conn:
-        return json.dumps({"error": "Database connection not available.", "status": "error_no_db"})
     if not file_path:
-        return json.dumps({"error": "Missing required 'file_path' parameter.", "status": "error_missing_param"})
+        return json.dumps({"error": "Missing required 'file_path' parameter.", "status": "error_missing_param"}, indent=2)
 
-    result_dict = manager._internal_list_javascript_constructs(file_path, construct_type)
+    valid_constructs = {'function', 'class', 'import', 'export', None}
+    if construct_type not in valid_constructs:
+        return json.dumps({
+            "error": f"Invalid 'construct_type' parameter. Must be one of {sorted([c for c in valid_constructs if c is not None])}.",
+            "status": "error_invalid_param"
+        }, indent=2)
+
+    manager = _CodebaseManager()
+    result_dict = _helper_list_javascript_constructs(manager, file_path, construct_type)
     return json.dumps(result_dict, indent=2)
 
 if __name__ == '__main__':
+    import os
     print("--- Testing JavaScriptAnalyzer Tool ---")
-    db_path = os.environ.get("CODEBASE_DB_PATH", "project_context.db")
+
+    workspace_dir = os.environ.get("CODEBASE_DB_PATH", ".")
+    db_path = os.path.join(workspace_dir, "project_context.db")
+
     if not os.path.exists(db_path):
-        print(f"\nERROR: Database file '{db_path}' not found.")
+        print(f"\nERROR: Database file '{os.path.abspath(db_path)}' not found.")
     else:
-        print(f"Using existing database: '{db_path}'")
-        # --- IMPORTANT ---
-        # You must replace 'test_file' with the actual path to a JavaScript file
-        # that exists in your 'project_context.db' database for these tests to work.
-        test_file = "static/js/app.js" # <-- REPLACE IF NEEDED
+        print(f"Using database found at: '{os.path.abspath(db_path)}'")
 
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM files WHERE path=?", (test_file,))
-        file_exists = cursor.fetchone()[0] > 0
-        conn.close()
+        # Dynamically find a JavaScript file from the DB to test against
+        manager = _CodebaseManager()
+        cursor = manager._execute_read_query("SELECT path FROM files WHERE type = 'javascript' LIMIT 1")
 
-        if not file_exists:
-            print(f"\nWARNING: The test file '{test_file}' was not found in your database.")
-            print("Please edit the 'test_file' variable in the __main__ block of javascript_analyzer.py.")
+        test_file = None
+        if cursor:
+            row = cursor.fetchone()
+            if row:
+                test_file = row['path']
+
+        if not test_file:
+            print("\nWARNING: No JavaScript files found in the database. Skipping tests.")
         else:
+            print(f"\n--- Found test file in DB: '{test_file}' ---")
+
             print(f"\n--- Test Call 1: list_javascript_constructs(file_path='{test_file}') ---")
             print(list_javascript_constructs(file_path=test_file))
 
@@ -133,3 +105,6 @@ if __name__ == '__main__':
 
             print(f"\n--- Test Call 3: list_javascript_constructs(file_path='{test_file}', construct_type='import') ---")
             print(list_javascript_constructs(file_path=test_file, construct_type='import'))
+
+            print(f"\n--- Test Call 4 (Error): list_javascript_constructs(file_path='non_existent_file.js') ---")
+            print(list_javascript_constructs(file_path='non_existent_file.js'))

@@ -50,7 +50,7 @@ DEFAULT_CURRENT_VARS = [
 
 # --- Helper Functions (Implementations are the same as before) ---
 
-def get_coordinates(location_name: str) -> tuple[float | None, float | None]:
+def _get_coordinates(location_name: str) -> tuple[float | None, float | None]:
     """Converts a location name to latitude and longitude using geopy."""
     if not GEOPY_AVAILABLE:
         print("Error: Geopy is not installed, cannot lookup coordinates by name.")
@@ -71,11 +71,11 @@ def get_coordinates(location_name: str) -> tuple[float | None, float | None]:
         print(traceback.format_exc())
         return None, None
 
-def decode_bytes(value):
+def _decode_bytes(value):
     """Safely decodes bytes to utf-8 string, returns original value otherwise."""
     return value.decode('utf-8') if isinstance(value, bytes) else value
 
-def format_timestamp(unix_ts: int | float, timezone_offset: int) -> str:
+def _format_timestamp(unix_ts: int | float, timezone_offset: int) -> str:
     """Formats a UNIX timestamp (seconds) into ISO 8601 format using the timezone offset."""
     try:
         tz = timezone(timedelta(seconds=timezone_offset))
@@ -88,7 +88,7 @@ def format_timestamp(unix_ts: int | float, timezone_offset: int) -> str:
         except Exception:
             return str(unix_ts)
 
-def get_wmo_description(code: int | float | None) -> str | None:
+def _get_wmo_description(code: int | float | None) -> str | None:
     """Returns a text description for a WMO weather code."""
     if code is None or pd.isna(code): return None
     try: code = int(code)
@@ -145,7 +145,7 @@ def get_openmeteo_weather(
              "status": "error_invalid_location_input"
         })
 
-    latitude, longitude = get_coordinates(location)
+    latitude, longitude = _get_coordinates(location)
 
     if latitude is None or longitude is None:
         err_msg = f"Could not find coordinates for location: '{location}'."
@@ -194,8 +194,8 @@ def get_openmeteo_weather(
 
         latitude_found = response.Latitude()
         longitude_found = response.Longitude()
-        timezone_api = decode_bytes(response.Timezone())
-        timezone_abbr_api = decode_bytes(response.TimezoneAbbreviation())
+        timezone_api = _decode_bytes(response.Timezone())
+        timezone_abbr_api = _decode_bytes(response.TimezoneAbbreviation())
         utc_offset_seconds = response.UtcOffsetSeconds() if hasattr(response, 'UtcOffsetSeconds') and response.UtcOffsetSeconds() is not None else 0
         elevation = response.Elevation() if hasattr(response, 'Elevation') else None
 
@@ -229,7 +229,7 @@ def get_openmeteo_weather(
         if request_current and hasattr(response, 'Current') and callable(response.Current):
             current = response.Current()
             if current:
-                current_data = {"time": format_timestamp(current.Time(), utc_offset_seconds)}
+                current_data = {"time": _format_timestamp(current.Time(), utc_offset_seconds)}
                 values = {}
                 for i in range(min(len(DEFAULT_CURRENT_VARS), current.VariablesLength())):
                     var_name = DEFAULT_CURRENT_VARS[i]
@@ -247,7 +247,7 @@ def get_openmeteo_weather(
                     elif name == "cloud_cover": unit = "%"
                     elif "wind_speed" in name or "wind_gusts" in name: unit = wind_unit
                     elif "wind_direction" in name: unit = "degrees"
-                    if name == "weather_code": description = get_wmo_description(value)
+                    if name == "weather_code": description = _get_wmo_description(value)
                     elif name == "is_day": description = "Daytime" if value == 1 else "Nighttime"
 
                     entry = {"value": round(value, 2) if isinstance(value, float) else value}
@@ -271,7 +271,7 @@ def get_openmeteo_weather(
                     hourly_times_end_raw = pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True)
                     interval = pd.Timedelta(seconds=hourly.Interval())
                     hourly_times = pd.date_range(start=hourly_times_raw, end=hourly_times_end_raw, freq=interval, inclusive="left")
-                    hourly_times_local_iso = [format_timestamp(ts.timestamp(), utc_offset_seconds) for ts in hourly_times]
+                    hourly_times_local_iso = [_format_timestamp(ts.timestamp(), utc_offset_seconds) for ts in hourly_times]
                     time_range_valid = True
                 except Exception as e:
                      print(f"Error generating hourly time range: {e}")
@@ -309,7 +309,7 @@ def get_openmeteo_weather(
                             elif "wind_speed" in name or "wind_gusts" in name: unit = wind_unit
                             elif "wind_direction" in name: unit = "degrees"
                             elif name == "visibility": unit = "meters"
-                            if name == "weather_code": description = get_wmo_description(value)
+                            if name == "weather_code": description = _get_wmo_description(value)
 
                             entry = {"value": round(value, 2) if isinstance(value, float) else value}
                             if unit: entry["unit"] = unit
@@ -335,7 +335,7 @@ def get_openmeteo_weather(
                     daily_times_end_raw = pd.to_datetime(daily.TimeEnd(), unit="s", utc=True)
                     interval = pd.Timedelta(seconds=daily.Interval())
                     daily_times = pd.date_range(start=daily_times_raw, end=daily_times_end_raw, freq=interval, inclusive="left")
-                    daily_dates_local = [format_timestamp(ts.timestamp(), utc_offset_seconds).split('T')[0] for ts in daily_times]
+                    daily_dates_local = [_format_timestamp(ts.timestamp(), utc_offset_seconds).split('T')[0] for ts in daily_times]
                     time_range_valid = True
                 except Exception as e:
                      print(f"Error generating daily time range: {e}")
@@ -376,11 +376,11 @@ def get_openmeteo_weather(
                                  unit = "UV Index"
                                  value = round(value, 1) if isinstance(value, float) else value
                             elif name in ["sunrise", "sunset"]:
-                                 try: value = format_timestamp(value, utc_offset_seconds)
+                                 try: value = _format_timestamp(value, utc_offset_seconds)
                                  except Exception as ts_e:
                                      print(f"Error formatting sunrise/sunset timestamp {value}: {ts_e}")
                                      value = None
-                            if name == "weather_code": description = get_wmo_description(value)
+                            if name == "weather_code": description = _get_wmo_description(value)
 
                             if value is not None:
                                 entry = {"value": round(value, 2) if isinstance(value, float) and name != "uv_index_max" else value}

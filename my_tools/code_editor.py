@@ -1,8 +1,13 @@
+# my_tools/code_editor.py
+
 import ast
-import sqlite3
 import os
 import json
-from my_tools.parsing_utils import parse_python_file, insert_file_data
+from typing import Any
+from my_tools.codebase_manager import _CodebaseManager
+from my_tools.path_security import _is_path_safe, _get_project_root
+from my_tools.parsing_utils import _parse_python_file, _insert_file_data
+
 
 class _CodeTransformer(ast.NodeTransformer):
     """
@@ -16,19 +21,19 @@ class _CodeTransformer(ast.NodeTransformer):
         self.new_nodes = ast.parse(new_code).body
         self.target_found_and_replaced = False
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> any:
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:
         if len(self.target_parts) == 1 and node.name == self.target_parts[0]:
             self.target_found_and_replaced = True
             return self.new_nodes
         return self.generic_visit(node)
 
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> any:
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> Any:
         if len(self.target_parts) == 1 and node.name == self.target_parts[0]:
             self.target_found_and_replaced = True
             return self.new_nodes
         return self.generic_visit(node)
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> any:
+    def visit_ClassDef(self, node: ast.ClassDef) -> Any:
         if len(self.target_parts) == 1 and node.name == self.target_parts[0]:
             self.target_found_and_replaced = True
             return self.new_nodes
@@ -47,100 +52,183 @@ class _CodeTransformer(ast.NodeTransformer):
             return self.generic_visit(node)
         return self.generic_visit(node)
 
-def debug_write_file(file_path: str, content: str) -> str:
+
+def _sync_db_after_file_creation(relative_path: str) -> str:
     """
-    (Temporary Debugging Tool) Writes a simple string to a file.
-
-    This tool is for diagnostic purposes only. It bypasses all complex parsing
-    and directly tests the file system's write capability within the tool's
-    execution environment. It includes the standard safety checks.
-
-    Args:
-        file_path (str): The absolute path to the file to write.
-        content (str): The string content to write to the file.
-
-    Returns:
-        A JSON string with the status of the operation.
+    (Internal) Updates the DB after a file is created/updated. Uses a WRITE connection.
     """
-    from my_tools.path_security import is_path_safe
-    import json
-    import os
+    project_root = _get_project_root()
+    if not project_root:
+        return json.dumps({'status': 'error', 'message': 'Project root not configured.'})
+    
+    full_path = os.path.abspath(os.path.join(project_root, relative_path.replace('/', '\\')))
+    if not os.path.exists(full_path):
+        return json.dumps({'status': 'error', 'message': f'File not found: {full_path}'})
 
-    if not is_path_safe(file_path):
-        return json.dumps({
-            'status': 'error',
-            'message': 'Security Error: Path is outside the allowed project directory.'
-        })
+    manager = _CodebaseManager()
+    try:
+        # Delete old record first
+        manager._execute_write_query('DELETE FROM files WHERE path = ?', (relative_path,))
+
+        # Add new record
+        with open(full_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        _, ext = os.path.splitext(full_path)
+        file_type = ext[1:] or 'text'
+        
+        file_details = _parse_python_file(relative_path, content) if file_type == 'py' else {
+            'path': relative_path, 'type': file_type, 'full_content': content,
+            'start_lineno': 1, 'end_lineno': len(content.splitlines()), 'docstring': None
+        }
+        
+        # This function needs a write-enabled cursor
+        write_conn = manager._get_write_connection()
+        if not write_conn: return json.dumps({'status': 'error', 'message': 'Could not get write-enabled DB connection.'})
+        
+        _insert_file_data(write_conn.cursor(), file_details)
+        write_conn.commit()
+
+        return json.dumps({'status': 'success', 'message': f"DB sync successful for '{relative_path}'."})
+    except Exception as e:
+        return json.dumps({'status': 'error', 'message': f'DB sync failed for {relative_path}: {e}'})
+
+def _sync_db_after_file_delete(relative_path: str) -> str:
+    """
+    (Internal) Updates the DB after a file is deleted. Uses a WRITE connection.
+    """
+    manager = _CodebaseManager()
+    # The original DELETE FROM files is a write operation.
+    manager._execute_write_query("DELETE FROM files WHERE path = ?", (relative_path,))
+    # We can add more specific deletions for other tables if needed.
+    return json.dumps({'status': 'success', 'message': f"DB record for '{relative_path}' deleted."})
+
+
+def _sync_db_after_file_move(old_relative_path: str, new_relative_path: str) -> str:
+    """
+    (Internal) Updates the DB after a file is moved. Uses a WRITE connection.
+    """
+    delete_status = json.loads(_sync_db_after_file_delete(old_relative_path))
+    refresh_status = json.loads(_sync_db_after_file_creation(new_relative_path))
+    return json.dumps({
+        'delete_old_record': delete_status,
+        'refresh_new_record': refresh_status
+    })
+
+def _refresh_file_representation(file_path: str) -> str:
+    """
+    (Low-Cost) Updates the database representation for a single file that has been changed.
+
+    This tool removes the old database entry and re-parses the live file to insert
+    the new, correct representation.
+    """
+
+    project_root = _get_project_root()
+    if not project_root:
+        return json.dumps({'status': 'error', 'message': 'Security Error: Project root not configured.'})
+    
+    # Create the full, absolute path before any checks or operations.
+    full_file_path = os.path.abspath(os.path.join(project_root, file_path))
+
+    if not _is_path_safe(full_file_path):
+        return json.dumps({'status': 'error', 'message': 'Security Error: Path is outside the allowed project directory.'})
+
+    manager = _CodebaseManager()
+    conn = manager._get_write_connection()
+    if not conn:
+        return json.dumps({'status': 'error', 'message': 'Database connection not available.'})
+
+    if not os.path.exists(file_path):
+        return json.dumps({'status': 'error', 'message': f'File not found: {file_path}'})
+
+    project_root = _get_project_root()
+    if not project_root:
+        return json.dumps({'status': 'error', 'message': 'Project root could not be determined to calculate relative path.'})
+
+    relative_path = os.path.relpath(file_path, project_root).replace("\\", "/")
 
     try:
-        # The core of the test: attempt to write the content to the specified file.
-        # The 'w' mode will create the file if it doesn't exist, or overwrite it if it does.
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-    except Exception as e:
-        # If any error occurs during the write, report it.
-        return json.dumps({
-            'status': 'error',
-            'message': f'An unexpected error occurred during file write: {e}'
-        })
+        cursor = conn.cursor()
+        cursor.execute('BEGIN')
+        cursor.execute('DELETE FROM files WHERE path = ?', (relative_path,))
 
-    # If the try block completes without error, report success.
-    return json.dumps({
-        'status': 'success',
-        'message': f"Successfully wrote to '{file_path}'. Verification is needed."
-    })
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        _, ext = os.path.splitext(file_path)
+        file_type = ext[1:] or 'text'
+
+        if file_type == 'py':
+            file_details = _parse_python_file(relative_path, content)
+        else:
+            file_details = {
+                'path': relative_path, 
+                'type': file_type, 
+                'full_content': content,
+                'start_lineno': 1,
+                'end_lineno': len(content.splitlines()),
+                'docstring': None
+            }
+
+        _insert_file_data(cursor, file_details)
+        conn.commit()
+        return json.dumps({'status': 'success', 'message': f"Database representation for '{relative_path}' updated successfully."})
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return json.dumps({'status': 'error', 'message': f'An error occurred during refresh for {relative_path}: {e}'})
+
+# --- PUBLIC-FACING TOOLS ---
 
 def apply_code_modification(file_path: str, target_identifier: str, new_code: str) -> str:
     """
     (High-Cost) Modifies a Python file by replacing a function or class with new code.
 
-    This tool operates directly on the file system using an Abstract Syntax Tree (AST)
-    for modifications of whole functions or classes.
+    This tool operates directly on the file system. It parses the file into an
+    Abstract Syntax Tree (AST), finds the specified target node (class, function, or method),
+    and replaces it with the new code provided. After successfully modifying the file,
+    it automatically updates the internal project database to reflect the changes.
 
-    Args:
-        file_path (str): The path to the Python file to modify.
-        target_identifier (str): The identifier of the code to replace (e.g., "MyClass" or "MyClass.my_method").
-        new_code (str): The new Python code to insert.
+    @param file_path (string): The path to the Python file to modify. REQUIRED.
+    @param target_identifier (string): The identifier of the code to replace (e.g., "MyClass" or "MyClass.my_method"). REQUIRED.
+    @param new_code (string): The new Python code block to insert. The code must be a valid, complete definition for a class, function, or method. REQUIRED.
 
     Returns:
-        A JSON string with the status of the operation.
+        string: A JSON string with the status of the operation (success, warning, or error) and a descriptive message.
     """
-    from my_tools.path_security import is_path_safe
-    import json
-    import os
-    import ast
 
-    # --- Start of existing code ---
-    if not is_path_safe(file_path):
+    project_root = _get_project_root()
+    if not project_root:
+        return json.dumps({'status': 'error', 'message': 'Security Error: Project root not configured.'})
+    
+    # Create the full, absolute path before any checks or operations.
+    full_file_path = os.path.abspath(os.path.join(project_root, file_path))
+
+    if not _is_path_safe(full_file_path):
         return json.dumps({'status': 'error', 'message': 'Security Error: Path is outside the allowed project directory.'})
-    if not os.path.exists(file_path):
+    if not os.path.exists(full_file_path):
         return json.dumps({'status': 'error', 'message': f'File not found: {file_path}'})
     try:
         ast.parse(new_code)
     except SyntaxError as e:
         return json.dumps({'status': 'error', 'message': f'Syntax error in new_code: {e}'})
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(full_file_path, 'r', encoding='utf-8') as f:
             source_code = f.read()
         original_tree = ast.parse(source_code)
     except Exception as e:
         return json.dumps({'status': 'error', 'message': f'Failed to read or parse {file_path}: {e}'})
 
-    # This is the internal transformer class you provided earlier
     transformer = _CodeTransformer(target_identifier, new_code)
     new_tree = transformer.visit(original_tree)
 
     if not transformer.target_found_and_replaced:
         return json.dumps({'status': 'error', 'message': f"Target '{target_identifier}' not found in {file_path}."})
 
-    # --- NEW DIAGNOSTIC CODE ---
     try:
         modified_code = ast.unparse(new_tree)
     except Exception as e:
         return json.dumps({'status': 'error', 'message': f'AST unparsing failed: {e}'})
 
-    # Compare the original source with the newly generated code.
-    # We normalize them by stripping whitespace from each line to avoid false negatives.
     original_lines = [line.strip() for line in source_code.strip().splitlines()]
     modified_lines = [line.strip() for line in modified_code.strip().splitlines()]
 
@@ -149,16 +237,13 @@ def apply_code_modification(file_path: str, target_identifier: str, new_code: st
             'status': 'error',
             'message': 'Internal Tool Error: Code modification resulted in no changes. The AST transformation failed silently.'
         })
-    # --- END OF NEW DIAGNOSTIC CODE ---
     try:
-        modified_code = ast.unparse(new_tree)
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(full_file_path, 'w', encoding='utf-8') as f:
             f.write(modified_code)
     except Exception as e:
         return json.dumps({'status': 'error', 'message': f'Failed to write modified code to {file_path}: {e}'})
 
-    # After a successful write, refresh the database representation.
-    refresh_status_json = refresh_file_representation(file_path)
+    refresh_status_json = refresh_status_json = _sync_db_after_file_creation(file_path)
     status_data = json.loads(refresh_status_json)
 
     if status_data['status'] == 'success':
@@ -167,292 +252,121 @@ def apply_code_modification(file_path: str, target_identifier: str, new_code: st
             'message': f"Successfully modified '{file_path}' and updated the project database."
         }, indent=2)
     else:
-        # The file was written, but the DB sync failed. This is a WARNING.
         return json.dumps({
             'status': 'warning',
-            'message': f"Successfully modified '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
+            'message': f"Successfully modified '{file_path}', but failed to update the project database. Reason: {status_data.get('message', 'Unknown')}"
         }, indent=2)
-    
+
 
 def find_and_replace_code_block(file_path: str, start_line_content: str, end_line_content: str, new_code_block: str) -> str:
     """
     (Medium-Cost) Finds a code block by its start and end lines and replaces it.
 
-    This tool is a more robust alternative to diffing. It locates a code block
-    by finding the first occurrence of the exact start_line_content and end_line_content,
-    then replaces the entire block (inclusive) with the new_code_block.
-    It automatically syncs the database on success.
+    This tool reads a file and searches for the first line that exactly matches 'start_line_content'.
+    From that point, it searches for the first subsequent line that exactly matches 'end_line_content'.
+    The entire block, including the start and end lines, is then replaced with the 'new_code_block'.
+    After a successful replacement, the tool automatically updates the project database.
 
-    Args:
-        file_path (str): The absolute path to the file to modify.
-        start_line_content (str): The exact text of the line where the block to be replaced begins.
-        end_line_content (str): The exact text of the line where the block to be replaced ends.
-        new_code_block (str): The new code to insert in place of the old block.
+    @param file_path (string): The path to the file to modify. REQUIRED.
+    @param start_line_content (string): The exact text of the line where the block to be replaced begins. REQUIRED.
+    @param end_line_content (string): The exact text of the line where the block to be replaced ends. REQUIRED.
+    @param new_code_block (string): The new code to insert in place of the old block. REQUIRED.
 
     Returns:
-        A JSON string with the status of the operation.
+        string: A JSON string with the status of the operation (success, warning, or error) and a descriptive message.
     """
-    import json
-    import os
-    # from .parsing_utils import refresh_file_representation
-    from my_tools.path_security import is_path_safe
 
-    if not is_path_safe(file_path):
-        return json.dumps({
-            'status': 'error',
-            'message': 'Security Error: Path is outside the allowed project directory.'
-        })
-    if not os.path.exists(file_path):
+    project_root = _get_project_root()
+    if not project_root:
+        return json.dumps({'status': 'error', 'message': 'Security Error: Project root not configured.'})
+    
+    # Create the full, absolute path before any checks or operations.
+    full_file_path = os.path.abspath(os.path.join(project_root, file_path))
+
+    if not _is_path_safe(full_file_path):
+        return json.dumps({'status': 'error', 'message': 'Security Error: Path is outside the allowed project directory.'})
+    if not os.path.exists(full_file_path):
         return json.dumps({'status': 'error', 'message': f'File not found: {file_path}.'})
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(full_file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
-        start_index = -1
-        end_index = -1
-
-        # Find the start line index
-        for i, line in enumerate(lines):
-            if start_line_content.strip() == line.strip():
-                start_index = i
-                break
-
+        start_index = next((i for i, line in enumerate(lines) if start_line_content.strip() == line.strip()), -1)
         if start_index == -1:
             return json.dumps({'status': 'error', 'message': f'Could not find the start line: "{start_line_content}"'})
 
-        # Find the end line index, starting from the found start_index
-        for i in range(start_index, len(lines)):
-            line = lines[i]
-            if end_line_content.strip() == line.strip():
-                end_index = i
-                break
-
+        end_index = next((i for i, line in enumerate(lines[start_index:], start=start_index) if end_line_content.strip() == line.strip()), -1)
         if end_index == -1:
             return json.dumps({'status': 'error', 'message': f'Could not find the end line: "{end_line_content}" after the start line.'})
 
-        # Construct the new list of lines
         new_lines = lines[:start_index]
-        new_lines.append(new_code_block + '\n') # Ensure the new block ends with a newline
+        new_lines.append(new_code_block + ('\n' if not new_code_block.endswith('\n') else ''))
         new_lines.extend(lines[end_index + 1:])
 
-        # Write the modified content back to the file
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(full_file_path, 'w', encoding='utf-8') as f:
             f.writelines(new_lines)
-
     except Exception as e:
         return json.dumps({'status': 'error', 'message': f'An unexpected error occurred during find and replace: {e}'})
 
-    # --- Synchronize the Database ---
-    refresh_status_json = refresh_file_representation(file_path)
+    refresh_status_json = _sync_db_after_file_creation(file_path)
     status_data = json.loads(refresh_status_json)
 
     if status_data['status'] == 'success':
         return json.dumps({'status': 'success', 'message': f"Successfully replaced code block in '{file_path}' and updated the database."}, indent=2)
     else:
-        return json.dumps({'status': 'warning', 'message': f"Successfully replaced code block in '{file_path}', but failed to update the database. Reason: {status_data['message']}"}, indent=2)
+        return json.dumps({'status': 'warning', 'message': f"Successfully replaced code block in '{file_path}', but failed to update the database. Reason: {status_data.get('message', 'Unknown')}"}, indent=2)
 
-def refresh_file_representation(file_path: str) -> str:
-    """
-    (Low-Cost) Updates the database representation for a single file that has been changed.
 
-    This tool removes the old database entry and re-parses the live file to insert
-    the new, correct representation. It is a necessary follow-up to 'apply_code_modification'.
-
-    Args:
-        file_path (str): The path to the file to refresh.
-
-    Returns:
-        A JSON string with the status of the operation.
-    """
-    
-    import json
-    import os
-    import sqlite3
-    from my_tools.path_security import is_path_safe, get_db_path, get_project_root
-    from my_tools.parsing_utils import parse_python_file, insert_file_data
-    if not is_path_safe(file_path):
-        return json.dumps({'status': 'error', 'message': 'Security Error: Path is outside the allowed project directory. Ensure CODEBASE_DB_PATH is set correctly.'})
-
-    db_path = get_db_path() # Use the new, reliable utility
-    if not db_path:
-        # This check is now explicit and clear.
-        return json.dumps({'status': 'error', 'message': 'Database path could not be determined. Ensure CODEBASE_DB_PATH is set.'})
-
-    if not os.path.exists(file_path):
-        return json.dumps({'status': 'error', 'message': f'File not found: {file_path}'})
-    
-    project_root = get_project_root()
-    if not project_root:
-        return json.dumps({'status': 'error', 'message': 'Project root could not be determined to calculate relative path.'})
-    relative_path = os.path.relpath(file_path, project_root).replace("\\", "/")
-    conn = None
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute('BEGIN')
-
-        # --- MODIFIED: Use the relative_path for the DELETE operation ---
-        cursor.execute('DELETE FROM files WHERE path = ?', (relative_path,))
-        
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        _, ext = os.path.splitext(file_path)
-
-        if ext == '.py':
-            # --- MODIFIED: Pass the relative_path to the parser to ensure it's stored correctly ---
-            file_details = parse_python_file(relative_path, content)
-        else:
-            # Handle other file types if necessary, ensuring relative_path is used
-            file_details = {
-                'path': relative_path, 
-                'type': ext[1:] or 'text', 
-                'full_content': content,
-                'start_lineno': 1,
-                'end_lineno': len(content.splitlines()),
-                'docstring': None
-            }
-
-        insert_file_data(cursor, file_details)
-
-        conn.commit()
-        return json.dumps({'status': 'success', 'message': f"Database representation for '{relative_path}' updated successfully."})
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        # Provide more context in the error message
-        return json.dumps({'status': 'error', 'message': f'An error occurred during refresh for {relative_path}: {e}'})
-    finally:
-        if conn:
-            conn.close()
 
 def create_or_update_file_safely(file_path: str, content: str, overwrite: bool = False) -> str:
     """
     (High-Cost) Safely creates a new file or updates an existing one with provided content.
 
-    This tool is the recommended way to write files. It includes multiple safety checks:
-    1.  Path Safety: Ensures the write operation is within the project directory.
-    2.  Overwrite Protection: Prevents accidental overwriting of existing files unless explicitly allowed.
-    3.  Syntax Validation: Checks for valid Python syntax before writing to '.py' files.
-    4.  State Synchronization: Automatically updates the project's database after a successful write.
+    This tool writes content to a specified file path. It includes several safety features:
+    - It checks that the path is within the allowed project directory.
+    - By default, it prevents overwriting existing files unless 'overwrite' is set to True.
+    - If the file is a Python file (.py), it validates the syntax of the content before writing.
+    - On success, it automatically creates or updates the file's representation in the project database.
 
-    Args:
-        file_path (str): The path to the file to create or update.
-        content (str): The content to write to the file.
-        overwrite (bool): Set to True to allow overwriting an existing file. Defaults to False.
+    @param file_path (string): The project-relative path to the file to create or update. REQUIRED.
+    @param content (string): The full content to write to the file. REQUIRED.
+    @param overwrite (boolean): Set to True to allow overwriting an existing file. Optional. Defaults to False.
 
     Returns:
-        A JSON string with the status of the operation.
+        string: A JSON string with the status of the operation (success, warning, or error) and a descriptive message.
     """
-    from my_tools.path_security import is_path_safe
-    import json
-    import os
-    import ast
 
-    if not is_path_safe(file_path):
-        return json.dumps({
-            'status': 'error',
-            'message': 'Security Error: Path is outside the allowed project directory.'
-        })
+    project_root = _get_project_root()
+    if not project_root:
+        return json.dumps({'status': 'error', 'message': 'Security Error: Project root not configured.'})
+    
+    # Create the full, absolute path before any checks or operations.
+    full_file_path = os.path.abspath(os.path.join(project_root, file_path))
 
-    if os.path.exists(file_path) and not overwrite:
-        return json.dumps({
-            'status': 'error',
-            'message': f'File "{file_path}" already exists. Set overwrite=True to allow modification.'
-        })
+    if not _is_path_safe(full_file_path):
+        return json.dumps({'status': 'error', 'message': 'Security Error: Path is outside the allowed project directory.'})
 
-    _, ext = os.path.splitext(file_path)
-    if ext == '.py':
+    if os.path.exists(full_file_path) and not overwrite:
+        return json.dumps({'status': 'error', 'message': f'File "{file_path}" already exists. Set overwrite=True to allow modification.'})
+
+    if file_path.endswith('.py'):
         try:
             ast.parse(content)
         except SyntaxError as e:
-            return json.dumps({
-                'status': 'error',
-                'message': f'Syntax error in new Python code: {e}'
-            })
+            return json.dumps({'status': 'error', 'message': f'Syntax error in new Python code: {e}'})
 
     try:
-        with open(file_path, 'w', encoding='utf-8') as f:
+        os.makedirs(os.path.dirname(full_file_path), exist_ok=True)
+        with open(full_file_path, 'w', encoding='utf-8') as f:
             f.write(content)
     except Exception as e:
-        return json.dumps({
-            'status': 'error',
-            'message': f'An unexpected error occurred during file write: {e}'
-        })
+        return json.dumps({'status': 'error', 'message': f'An unexpected error occurred during file write: {e}'})
 
-    # After a successful write, refresh the database representation.
-    refresh_status = refresh_file_representation(file_path)
-    status_data = json.loads(refresh_status)
+    refresh_status_json = _sync_db_after_file_creation(file_path)
+    status_data = json.loads(refresh_status_json)
 
     if status_data['status'] == 'success':
-        return json.dumps({
-            'status': 'success',
-            'message': f"Successfully wrote to '{file_path}' and updated the project database."
-        })
+        return json.dumps({'status': 'success', 'message': f"Successfully wrote to '{file_path}' and updated the project database."})
     else:
-        # If the refresh fails, we should report it as a partial success/warning.
-        return json.dumps({
-            'status': 'warning',
-            'message': f"Successfully wrote to '{file_path}', but failed to update the project database. Reason: {status_data['message']}"
-        })
-
-def delete_file_representation(file_path: str) -> str:
-    """
-    (Internal-Facing) Deletes a file's representation from the project database.
-
-    This function is critical for keeping the database synchronized when files are
-    deleted from the file system.
-
-    Args:
-        file_path (str): The path of the file to remove from the database.
-
-    Returns:
-        A JSON string with the status of the database operation.
-    """
-    from my_tools.path_security import get_db_path, get_project_root
-    import sqlite3
-    import json
-    import os
-
-    db_path = get_db_path()
-    project_root = get_project_root()
-    if not db_path or not project_root:
-        return json.dumps({'status': 'error', 'message': 'Database path or project root not configured.'})
-
-    # Use relative path for database operations
-    relative_path = os.path.relpath(os.path.abspath(file_path), project_root)
-
-    conn = None
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        # First, get the file ID
-        cursor.execute("SELECT id FROM files WHERE path = ?", (relative_path,))
-        row = cursor.fetchone()
-
-        if not row:
-            return json.dumps({'status': 'warning', 'message': f"File '{relative_path}' not found in database; no action taken."})
-
-        file_id = row[0]
-
-        # Delete associated records from child tables (important for foreign key constraints)
-        cursor.execute("DELETE FROM python_imports WHERE file_id = ?", (file_id,))
-        cursor.execute("DELETE FROM python_classes WHERE file_id = ?", (file_id,))
-        cursor.execute("DELETE FROM python_functions WHERE file_id = ?", (file_id,))
-        # Add other child table deletions here if you have more (html, css, etc.)
-
-        # Finally, delete the file record itself
-        cursor.execute("DELETE FROM files WHERE id = ?", (file_id,))
-
-        conn.commit()
-        return json.dumps({'status': 'success', 'message': f"Successfully deleted '{relative_path}' from the project database."})
-
-    except sqlite3.Error as e:
-        if conn:
-            conn.rollback()
-        return json.dumps({'status': 'error', 'message': f'An error occurred during database deletion for {relative_path}: {e}'})
-    finally:
-        if conn:
-            conn.close()
+        return json.dumps({'status': 'warning', 'message': f"Successfully wrote to '{file_path}', but failed to update the project database. Reason: {status_data.get('message', 'Unknown')}"})

@@ -13,7 +13,7 @@ def _get_source_segment(source_code, node):
         end = node.end_lineno if hasattr(node, 'end_lineno') else start
         return '\n'.join(lines[start:end])
 
-def parse_python_file(filepath: str, content: str) -> dict:
+def _parse_python_file(filepath: str, content: str) -> dict:
     """
     Parses the content of a Python file and extracts structured data.
 
@@ -74,13 +74,13 @@ def parse_python_file(filepath: str, content: str) -> dict:
                     }
     return file_data
 
-def insert_file_data(cursor, file_details: dict):
+def _insert_file_data(cursor, file_details: dict):
     """
     Inserts structured file data into the database.
 
     Args:
         cursor: A database cursor object.
-        file_details (dict): The structured data from parse_python_file.
+        file_details (dict): The structured data from _parse_python_file.
     """
     cursor.execute('INSERT INTO files (path, type, full_content, docstring, start_lineno, end_lineno) VALUES (?, ?, ?, ?, ?, ?)',
                    (file_details['path'], file_details['type'], file_details.get('full_content'), file_details.get('docstring'), 1, len(file_details.get('full_content', '').splitlines())))

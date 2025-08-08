@@ -3,7 +3,7 @@
 import subprocess
 import json
 import os
-from my_tools.path_security import get_project_root
+from my_tools.path_security import _get_project_root
 
 def _run_jailed_command(command: str, working_dir: str) -> str:
     """
