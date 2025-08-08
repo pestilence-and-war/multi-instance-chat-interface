@@ -30,6 +30,25 @@ except ImportError:
     print("Install with: pip install esprima")
     JS_PARSING_AVAILABLE = False
 
+### NEW PARSERS ADDED ###
+# Attempt to import YAML parser
+try:
+    import yaml
+    YAML_PARSING_AVAILABLE = True
+except ImportError:
+    print("Warning: PyYAML not found. YAML (.yml, .yaml) parsing will be skipped.")
+    print("Install with: pip install PyYAML")
+    YAML_PARSING_AVAILABLE = False
+
+# Attempt to import TOML parser
+try:
+    import toml
+    TOML_PARSING_AVAILABLE = True
+except ImportError:
+    print("Warning: toml library not found. TOML (.toml) parsing will be skipped.")
+    print("Install with: pip install toml")
+    TOML_PARSING_AVAILABLE = False
+
 
 # --- Configuration: Define File and Directory Handling ---
 # These lists and sets control which files and directories are included,
@@ -51,10 +70,10 @@ EXCLUDED_DIRS = {
 # (These files will be listed in the directory_tree but WILL NOT have an entry
 # in the 'files' dictionary, nor will their content be read).
 EXCLUDED_FILENAMES = {
-    # os.path.basename(__file__), # Exclude this script itself by name
-    '.env', # Explicitly exclude environment variable files
+    os.path.basename(__file__), # Exclude this script itself by name
+    # '.env', # Explicitly exclude environment variable files
     'build_code_json.py', 'create_context.py', 'recreate_structure.py',# Add other specific filenames here (e.g., 'package-lock.json' if not managed by INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
-    'htmx.min.js' # Example, could also be handled by MANAGED_EXTENSIONS
+    # 'htmx.min.js' # Example, could also be handled by MANAGED_EXTENSIONS
 }
 
 # Define file extensions for files that are likely binary or sensitive.
@@ -79,17 +98,17 @@ BINARY_EXTENSIONS = {
 # whose content isn't needed for understanding the core project code logic.
 # Use INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES to override this for specific important files.
 IGNORED_TEXT_EXTENSIONS = {
-     '.json', '.jsonl', # Data/Log files (unless specifically in INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
-     '.log', '.csv', '.tsv', # Data/Log files
-     '.txt', # Generic text files (unless specifically in INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
-     '.md', '.markdown', # Markdown (consider parsing if structure is needed, or add to INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
-     '.yml', '.yaml', '.toml', '.ini', # Configuration files (consider parsing or adding to INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
-     '.gitignore', '.dockerignore', '.eslintignore', # Ignore rules files
-     '.editorconfig', '.gitattributes', # Config files
-     # Dependency manifests - use INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES for key ones like requirements.txt or package.json
-     'package-lock.json', 'yarn.lock',
-     'Gemfile.lock', 'pom.xml', 'build.gradle', # Build/dependency definition files
-     # Add other extensions here
+    '.jsonl', # Data/Log files (unless specifically in INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
+    '.log', '.csv', '.tsv', # Data/Log files
+    '.txt', # Generic text files (unless specifically in INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
+    # '.md', '.markdown', # Markdown (consider parsing if structure is needed, or add to INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
+    '.ini', # Configuration files (consider parsing or adding to INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
+    '.gitignore', '.dockerignore', '.eslintignore', # Ignore rules files
+    '.editorconfig', '.gitattributes', # Config files
+    # Dependency manifests - use INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES for key ones like requirements.txt or package.json
+    'package-lock.json', 'yarn.lock',
+    'Gemfile.lock', 'pom.xml', 'build.gradle', # Build/dependency definition files
+    # Add other extensions here
 }
 
 # Define specific filenames whose *content* SHOULD be included in the 'files' dictionary,
@@ -99,6 +118,7 @@ INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES = {
     'requirements.txt',
     'package.json',
     'Gemfile',
+    'pyproject.toml',
     # Add other specific project-critical config/text filenames here
     # e.g., 'main_config.json', 'settings.ini'
 }
@@ -128,9 +148,10 @@ PARSEABLE_CODE_EXTENSIONS = {
     '.html', '.htm',
     '.css',
     '.js',
-    # Add other code/markup language extensions here (e.g., '.js', '.jsx', '.ts', '.tsx', '.vue')
-    # Note: If a .json file is in INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES and you want to parse its structure,
-    # you could add '.json' here and create a simple parse_json_file function.
+    '.json', # NEW: Added JSON
+    '.yml', '.yaml', # NEW: Added YAML
+    '.toml', # NEW: Added TOML
+    # Add other code/markup language extensions here (e.g., '.jsx', '.ts', '.tsx', '.vue')
 }
 
 ### DB MOD ###: New function to create the database schema
@@ -145,6 +166,12 @@ def create_schema(cursor):
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS directory_tree (
         path TEXT PRIMARY KEY
+    )''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS directories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        path TEXT NOT NULL UNIQUE
     )''')
 
     # Core File Table
@@ -255,9 +282,20 @@ def create_schema(cursor):
         FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
     )''')
 
+    ### NEW TABLE FOR DATA FILES ###
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS parsed_data_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_id INTEGER NOT NULL,
+        format TEXT NOT NULL, -- e.g., 'json', 'yaml', 'toml'
+        data TEXT, -- Store the parsed data as a JSON string
+        FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
+    )''')
+
 
     # Create Indexes for performance
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_files_path ON files (path)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_directories_path ON directories (path)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_py_classes_file_id ON python_classes (file_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_py_functions_file_id ON python_functions (file_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_html_elements_file_id ON html_elements (file_id)')
@@ -266,6 +304,8 @@ def create_schema(cursor):
     # NEW INDEX FOR FUNCTION CALLS
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_py_function_calls_caller_id ON python_function_calls (caller_function_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_py_function_calls_callee_name ON python_function_calls (callee_name)')
+    # NEW INDEX FOR DATA FILES
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_parsed_data_files_file_id ON parsed_data_files (file_id)')
     print("Database schema created and indexed.")
 
 
@@ -329,15 +369,15 @@ def insert_file_data(cursor, file_details):
                     # This is slightly inefficient but safe.
                     class_name_row = cursor.execute("SELECT name FROM python_classes WHERE id = ?", (class_id,)).fetchone()
                     if class_name_row:
-                         map_key = f"{class_name_row[0]}.{func_name}"
+                        map_key = f"{class_name_row[0]}.{func_name}"
                 function_id_map[map_key] = new_parent_id
 
                 # RECURSIVE CALL for any nested functions this function contains
                 if func_data.get('nested_functions'):
                     _insert_functions_recursive(func_data['nested_functions'], class_id, new_parent_id)
-        
+
         # --- Main Insertion Logic ---
-        
+
         for imp in file_details.get('imports', []):
             cursor.execute('INSERT INTO python_imports (file_id, import_statement) VALUES (?, ?)', (file_id, imp))
 
@@ -351,7 +391,7 @@ def insert_file_data(cursor, file_details):
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (file_id, class_data['name'], class_data['docstring'], class_data['source_code'], class_data['start_lineno'], class_data['end_lineno']))
             class_id = cursor.lastrowid
-            
+
             # Initial call for methods within this class
             if class_data.get('methods'):
                 _insert_functions_recursive(class_data.get('methods', {}), class_id=class_id, parent_function_id=None)
@@ -393,14 +433,14 @@ def insert_file_data(cursor, file_details):
                     # Insert the parsed JS items linked to the script element
                     for js_func in parsed_js_data.get('functions', []):
                         cursor.execute('INSERT INTO js_parsed_items (html_element_id, item_type, data) VALUES (?, ?, ?)',
-                                        (element_id, 'function', json.dumps(js_func)))
+                                       (element_id, 'function', json.dumps(js_func)))
                     for js_listener in parsed_js_data.get('event_listeners', []):
                         cursor.execute('INSERT INTO js_parsed_items (html_element_id, item_type, data) VALUES (?, ?, ?)',
-                                        (element_id, 'event_listener', json.dumps(js_listener)))
+                                       (element_id, 'event_listener', json.dumps(js_listener)))
                 else:
                 # For all other element types, just dump the data
                     cursor.execute('INSERT INTO html_elements (file_id, element_type, data) VALUES (?, ?, ?)',
-                                (file_id, singular_type, json.dumps(item_data)))
+                               (file_id, singular_type, json.dumps(item_data)))
 
 
     elif file_type == 'css':
@@ -424,6 +464,22 @@ def insert_file_data(cursor, file_details):
                 construct.get('start_lineno'),
                 construct.get('end_lineno')
             ))
+    
+    ### NEW: Handle parsed data files (JSON, YAML, TOML) ###
+    elif file_type in ('json', 'yaml', 'toml'):
+        if 'data' in file_details:
+            try:
+                # Store the parsed data as a JSON string for consistency
+                data_as_json = json.dumps(file_details['data'], indent=2)
+                cursor.execute('''
+                    INSERT INTO parsed_data_files (file_id, format, data)
+                    VALUES (?, ?, ?)
+                ''', (file_id, file_type, data_as_json))
+            except (TypeError, OverflowError) as e:
+                # Handle cases where the data can't be serialized to JSON
+                error_details = {"path": file_details['path'], "type": f"{file_type}_serialization_error", "error": str(e)}
+                insert_file_data(cursor, error_details)
+
 
 # --- Helper Functions for Python AST Parsing ---
 
@@ -569,9 +625,9 @@ def get_signature(node):
     signature_str = "(" + ", ".join(args) + ")"
     if node.returns:
         try:
-           return_annotation_str = safe_unparse(node.returns)
-           if return_annotation_str:
-               signature_str += f" -> {return_annotation_str}"
+            return_annotation_str = safe_unparse(node.returns)
+            if return_annotation_str:
+                signature_str += f" -> {return_annotation_str}"
         except Exception:
             pass
     return signature_str
@@ -590,7 +646,7 @@ def get_source_segment(source_code, node):
              try:
                  return ast.get_source_segment(source_lines_str, node, extend_past_eol=True)
              except TypeError:
-                  return ast.get_source_segment(source_lines_str, node)
+                   return ast.get_source_segment(source_lines_str, node)
         elif sys.version_info >= (3, 8):
             core_segment = ast.get_source_segment(source_lines_str, node)
             if core_segment is None: return None
@@ -673,7 +729,7 @@ def parse_python_file(filepath, content):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 func_name = node.name
                 source_seg = get_source_segment(content, node)
-                
+
                 # RECURSIVE CALL: Parse the body of this function for nested functions
                 nested_functions, _ = _parse_body(node.body, is_class_body)
 
@@ -687,7 +743,7 @@ def parse_python_file(filepath, content):
                     "end_lineno": node.end_lineno if hasattr(node, 'end_lineno') else node.lineno,
                     "nested_functions": nested_functions # Store the nested functions dict here
                 }
-            
+
             # 2. Handle Classes (only if we are not already in a class)
             elif isinstance(node, ast.ClassDef) and not is_class_body:
                 class_name = node.name
@@ -695,7 +751,7 @@ def parse_python_file(filepath, content):
 
                 # RECURSIVE CALL: Parse the class body to get methods
                 methods_found, _ = _parse_body(node.body, is_class_body=True)
-                
+
                 classes_found[class_name] = {
                     "type": "class",
                     "name": class_name,
@@ -710,7 +766,7 @@ def parse_python_file(filepath, content):
             elif isinstance(node, (ast.Import, ast.ImportFrom)) and not is_class_body:
                 try:
                     if sys.version_info >= (3, 9):
-                         import_str = ast.unparse(node).strip()
+                        import_str = ast.unparse(node).strip()
                     else: # Manual fallback
                         if isinstance(node, ast.Import):
                             names = [n.name + (f" as {n.asname}" if n.asname else "") for n in node.names]
@@ -722,8 +778,8 @@ def parse_python_file(filepath, content):
                             import_str = f"from {level}{module} import {', '.join(names)}"
                     file_data["imports"].append(import_str)
                 except Exception as e:
-                     print(f"Warning: Could not process import node in {filepath}: {ast.dump(node)[:100]}... - {e}")
-                     file_data["imports"].append(f"# Error processing import: {ast.dump(node)[:100]}...")
+                    print(f"Warning: Could not process import node in {filepath}: {ast.dump(node)[:100]}... - {e}")
+                    file_data["imports"].append(f"# Error processing import: {ast.dump(node)[:100]}...")
 
         return functions_found, classes_found
 
@@ -773,8 +829,8 @@ def parse_javascript_content(js_code: str, html_filepath: str = None) -> dict:
             start_idx, end_idx = node.range
             return code_str[start_idx:end_idx]
         elif hasattr(node, 'loc') and node.loc and \
-            hasattr(node.loc, 'start') and hasattr(node.loc.start, 'index') and \
-            hasattr(node.loc, 'end') and hasattr(node.loc.end, 'index'):
+             hasattr(node.loc, 'start') and hasattr(node.loc.start, 'index') and \
+             hasattr(node.loc, 'end') and hasattr(node.loc.end, 'index'):
             start_idx = node.loc.start.index
             end_idx = node.loc.end.index
             return code_str[start_idx:end_idx]
@@ -800,12 +856,12 @@ def parse_javascript_content(js_code: str, html_filepath: str = None) -> dict:
                    hasattr(parent_node, 'id') and getattr(parent_node.id, 'type', None) == esprima.Syntax.Identifier:
                     func_name = parent_node.id.name
                 elif parent_node.type == esprima.Syntax.MethodDefinition and \
-                    node == getattr(parent_node, 'value', None) and \
-                    hasattr(parent_node, 'key') and getattr(parent_node.key, 'type', None) == esprima.Syntax.Identifier:
+                     node == getattr(parent_node, 'value', None) and \
+                     hasattr(parent_node, 'key') and getattr(parent_node.key, 'type', None) == esprima.Syntax.Identifier:
                     func_name = parent_node.key.name
                 elif parent_node.type == esprima.Syntax.Property and \
-                    node == getattr(parent_node, 'value', None) and \
-                    hasattr(parent_node, 'key'): # Key could be Identifier or Literal
+                     node == getattr(parent_node, 'value', None) and \
+                     hasattr(parent_node, 'key'): # Key could be Identifier or Literal
                     if getattr(parent_node.key, 'type', None) == esprima.Syntax.Identifier:
                         func_name = parent_node.key.name
                     # If key is Literal (e.g. "myFunc": function(){}), func_name remains None or could be parent_node.key.value
@@ -816,10 +872,10 @@ def parse_javascript_content(js_code: str, html_filepath: str = None) -> dict:
                 "start_lineno": node.loc.start.line, "end_lineno": node.loc.end.line
             })
         elif node.type == esprima.Syntax.CallExpression and \
-            hasattr(node.callee, 'type') and node.callee.type == esprima.Syntax.MemberExpression and \
-            hasattr(node.callee, 'property') and getattr(node.callee.property, 'type', None) == esprima.Syntax.Identifier and \
-            node.callee.property.name == 'addEventListener' and \
-            hasattr(node, 'arguments') and len(node.arguments) >= 2:
+             hasattr(node.callee, 'type') and node.callee.type == esprima.Syntax.MemberExpression and \
+             hasattr(node.callee, 'property') and getattr(node.callee.property, 'type', None) == esprima.Syntax.Identifier and \
+             node.callee.property.name == 'addEventListener' and \
+             hasattr(node, 'arguments') and len(node.arguments) >= 2:
 
             target_source = get_source_from_js_node(node.callee.object, js_code)
             event_arg = node.arguments[0]
@@ -1022,11 +1078,11 @@ def parse_html_file(filepath, content):
         htmx_attrs_regex = re.compile(r'^hx-.+')
         for element in soup.find_all(lambda tag: any(htmx_attrs_regex.match(attr) for attr in tag.attrs if isinstance(attr, str))):
              file_data["htmx_elements"].append({
-                "tag": element.name, "id": element.get('id'), "classes": element.get('class'),
-                "hx_attributes": {attr: value for attr, value in element.attrs.items() if isinstance(attr, str) and htmx_attrs_regex.match(attr)},
-                "text_snippet": (element.get_text(strip=True)[:100] + "...") if element.get_text(strip=True) else None,
-                "ancestry_path": _get_element_ancestry(element, soup.body)
-            })
+                 "tag": element.name, "id": element.get('id'), "classes": element.get('class'),
+                 "hx_attributes": {attr: value for attr, value in element.attrs.items() if isinstance(attr, str) and htmx_attrs_regex.match(attr)},
+                 "text_snippet": (element.get_text(strip=True)[:100] + "...") if element.get_text(strip=True) else None,
+                 "ancestry_path": _get_element_ancestry(element, soup.body)
+             })
 
         for script_tag in soup.find_all('script'):
             start_line_html = script_tag.sourceline if hasattr(script_tag, 'sourceline') and isinstance(script_tag.sourceline, int) else None
@@ -1127,6 +1183,71 @@ def parse_css_file(filepath, content):
             file_data["rules"].append(rule_data)
     return file_data
 
+### NEW PARSING FUNCTIONS FOR DATA FILES ###
+
+def parse_json_file(filepath, content):
+    """
+    Parses a JSON file's content.
+    """
+    line_count = len(content.splitlines())
+    file_data = {
+        "path": filepath, "type": "json", "data": None,
+        "start_lineno": 1, "end_lineno": line_count, "full_content": content
+    }
+    if not content.strip():
+        file_data["message"] = "File is empty or contains only whitespace."
+        return file_data
+    try:
+        file_data["data"] = json.loads(content)
+    except json.JSONDecodeError as e:
+        print(f"JSON syntax error in {filepath}: {e}")
+        file_data.update({"type": "json_error", "error": str(e)})
+    return file_data
+
+def parse_yaml_file(filepath, content):
+    """
+    Parses a YAML file's content.
+    """
+    line_count = len(content.splitlines())
+    file_data = {
+        "path": filepath, "type": "yaml", "data": None,
+        "start_lineno": 1, "end_lineno": line_count, "full_content": content
+    }
+    if not content.strip():
+        file_data["message"] = "File is empty or contains only whitespace."
+        return file_data
+    if not YAML_PARSING_AVAILABLE:
+        file_data.update({"type": "yaml_skipped", "message": "YAML parsing skipped: PyYAML not installed."})
+        return file_data
+    try:
+        file_data["data"] = yaml.safe_load(content)
+    except yaml.YAMLError as e:
+        print(f"YAML syntax error in {filepath}: {e}")
+        file_data.update({"type": "yaml_error", "error": str(e)})
+    return file_data
+
+def parse_toml_file(filepath, content):
+    """
+    Parses a TOML file's content.
+    """
+    line_count = len(content.splitlines())
+    file_data = {
+        "path": filepath, "type": "toml", "data": None,
+        "start_lineno": 1, "end_lineno": line_count, "full_content": content
+    }
+    if not content.strip():
+        file_data["message"] = "File is empty or contains only whitespace."
+        return file_data
+    if not TOML_PARSING_AVAILABLE:
+        file_data.update({"type": "toml_skipped", "message": "TOML parsing skipped: toml library not installed."})
+        return file_data
+    try:
+        file_data["data"] = toml.loads(content)
+    except toml.TomlDecodeError as e:
+        print(f"TOML syntax error in {filepath}: {e}")
+        file_data.update({"type": "toml_error", "error": str(e)})
+    return file_data
+
 
 # --- Main Directory Processing Function (Modified for DB) ---
 
@@ -1175,6 +1296,7 @@ def build_project_database(root_dir=".", output_filename="project_context.db"):
             if "./" not in directory_tree_list: directory_tree_list.append("./")
         elif relative_subdir != ".":
             directory_tree_list.append(f"{relative_subdir}/")
+            cursor.execute("INSERT OR IGNORE INTO directories (path) VALUES (?)", (f"{relative_subdir}/",))
 
         for file_name in files_in_dir:
             filepath = os.path.join(subdir, file_name)
@@ -1239,6 +1361,18 @@ def build_project_database(root_dir=".", output_filename="project_context.db"):
                             else:
                                 file_details = {"path": relative_filepath, "type": "javascript_skipped", "message": "JS parsing skipped: esprima missing.", "full_content": content, "start_lineno": 1, "end_lineno": line_count}
                                 skipped_parsing_setup['javascript'] = skipped_parsing_setup.get('javascript', 0) + 1
+                        ### NEW: Handle data files on allow list ###
+                        elif file_extension_lower == '.json': file_details = parse_json_file(relative_filepath, content)
+                        elif file_extension_lower in ('.yml', '.yaml'):
+                            if YAML_PARSING_AVAILABLE: file_details = parse_yaml_file(relative_filepath, content)
+                            else:
+                                file_details = {"path": relative_filepath, "type": "yaml_skipped", "message": "YAML parsing skipped: library missing.", "full_content": content, "start_lineno": 1, "end_lineno": line_count}
+                                skipped_parsing_setup['yaml'] = skipped_parsing_setup.get('yaml', 0) + 1
+                        elif file_extension_lower == '.toml':
+                            if TOML_PARSING_AVAILABLE: file_details = parse_toml_file(relative_filepath, content)
+                            else:
+                                file_details = {"path": relative_filepath, "type": "toml_skipped", "message": "TOML parsing skipped: library missing.", "full_content": content, "start_lineno": 1, "end_lineno": line_count}
+                                skipped_parsing_setup['toml'] = skipped_parsing_setup.get('toml', 0) + 1
                         else: # Should not be reached if PARSEABLE_CODE_EXTENSIONS is well-defined
                             file_details = {"path": relative_filepath, "type": "unhandled_parseable_on_allow_list", "full_content": content, "start_lineno": 1, "end_lineno": line_count}
                     else: # Not parseable, but on allow list - store as generic text
@@ -1299,6 +1433,18 @@ def build_project_database(root_dir=".", output_filename="project_context.db"):
                         else:
                             file_details = {"path": relative_filepath, "type": "javascript_skipped", "message": "JS parsing skipped: esprima missing.", "full_content": content, "start_lineno": 1, "end_lineno": line_count}
                             skipped_parsing_setup['javascript'] = skipped_parsing_setup.get('javascript', 0) + 1
+                    ### NEW: Handle data files ###
+                    elif file_extension_lower == '.json': file_details = parse_json_file(relative_filepath, content)
+                    elif file_extension_lower in ('.yml', '.yaml'):
+                        if YAML_PARSING_AVAILABLE: file_details = parse_yaml_file(relative_filepath, content)
+                        else:
+                            file_details = {"path": relative_filepath, "type": "yaml_skipped", "message": "YAML parsing skipped: library missing.", "full_content": content, "start_lineno": 1, "end_lineno": line_count}
+                            skipped_parsing_setup['yaml'] = skipped_parsing_setup.get('yaml', 0) + 1
+                    elif file_extension_lower == '.toml':
+                        if TOML_PARSING_AVAILABLE: file_details = parse_toml_file(relative_filepath, content)
+                        else:
+                            file_details = {"path": relative_filepath, "type": "toml_skipped", "message": "TOML parsing skipped: library missing.", "full_content": content, "start_lineno": 1, "end_lineno": line_count}
+                            skipped_parsing_setup['toml'] = skipped_parsing_setup.get('toml', 0) + 1
                     else: # Should not be reached
                         file_details = {"path": relative_filepath, "type": "unhandled_parseable", "full_content": content, "start_lineno": 1, "end_lineno": line_count}
                 else: # Generic text file not caught by any other rule
