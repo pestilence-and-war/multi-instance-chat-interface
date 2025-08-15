@@ -1,0 +1,16 @@
+{
+  "roles": [
+    {
+      "name": "Project Manager",
+      "description": "Manages the project, breaks down tasks, and assigns them to specialists."
+    },
+    {
+      "name": "Frontend Developer",
+      "description": "Develops user interfaces using web technologies."
+    },
+    {
+      "name": "Architect",
+      "description": "Analyzes the initial user request and defines the required team of personas."
+    }
+  ]
+}
