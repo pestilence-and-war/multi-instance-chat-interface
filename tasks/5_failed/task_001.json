@@ -1,0 +1,10 @@
+{
+  "task_id": "task_001",
+  "description": "The user wants a simple webpage that says 'Hello World'. Break this down into a task for the Frontend Developer and create a plan document.",
+  "persona": "Project Manager",
+  "dependencies": [],
+  "output_path": "archive/deliverables/plan.txt",
+  "status": "failed",
+  "error_message": "Failed to connect agent: API Client Init Error: Could not connect to Ollama at http://localhost:11434. Is Ollama running?",
+  "failed_at": 1755227906.2700117
+}
