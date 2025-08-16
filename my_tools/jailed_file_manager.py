@@ -157,3 +157,59 @@ def jailed_move_file(source_path: str, destination_path: str) -> str:
         return json.dumps(result, indent=2)
 
     return result_str
+
+def setup_digital_office_structure() -> str:
+    """
+    (Medium-Cost) Creates the standard "Digital Office" directory structure for AATFS.
+    This tool is idempotent; it will not fail if the directories already exist.
+    It creates the following structure:
+    - personas/
+    - tasks/ (with subdirectories 0_pending through 5_failed)
+    - archive/deliverables/
+    All created directories are automatically registered in the project database.
+
+    Returns:
+        string: A JSON string summarizing the results of each directory creation operation.
+    """
+    directories_to_create = [
+        "personas",
+        "tasks",
+        "archive",
+        "tasks/0_pending",
+        "tasks/1_assigned",
+        "tasks/2_in_progress",
+        "tasks/3_review",
+        "tasks/4_done",
+        "tasks/5_failed",
+        "archive/deliverables"
+    ]
+
+    results = []
+    overall_status = "success"
+
+    for directory in directories_to_create:
+        result_str = jailed_create_directory(directory)
+        try:
+            result = json.loads(result_str)
+            # Don't mark as failure if the directory already exists
+            is_preexisting = "already exists" in result.get("stderr", "")
+            if result.get("status") == "error" and not is_preexisting:
+                overall_status = "partial_failure"
+            
+            results.append({
+                "directory": directory,
+                "status": "skipped_preexisting" if is_preexisting else result.get("status"),
+                "details": result
+            })
+
+        except json.JSONDecodeError:
+            results.append({"directory": directory, "status": "error", "message": "Failed to decode JSON response."})
+            overall_status = "partial_failure"
+
+    final_report = {
+        "tool": "setup_digital_office_structure",
+        "overall_status": overall_status,
+        "operations": results
+    }
+
+    return json.dumps(final_report, indent=2)
