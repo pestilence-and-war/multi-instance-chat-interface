@@ -487,7 +487,7 @@ class ChatInstance:
     def _run_generation_in_thread(self, initial_messages, config):
         """Handles the conversation loop, including tool execution cycles."""
         current_messages = initial_messages[:] # Work on a copy
-        max_tool_cycles = 5
+        max_tool_cycles = 5 # Magic number is based on API limits from Google Free and cost control
         cycles = 0
         final_event_type = "finish" # Default
         final_assistant_content = "" # Accumulate final text across cycles if needed
@@ -532,14 +532,15 @@ class ChatInstance:
                         print("Received 'finish' signal (text only).")
                         break # Exit inner loop, conversation over
                     elif chunk_type == "error":
-                         error_this_api_call = content_data
-                         print(f"Received 'error' from client: {error_this_api_call}")
-                         break # Exit inner loop on error
+                        error_this_api_call = content_data
+                        ccumulated_text_this_api_call = content_data # Partial text
+                        print(f"Received 'error' from client: {error_this_api_call}")
+                        break # Exit inner loop on error
                     elif chunk_type == "stopped":
-                         stopped_this_api_call = True
-                         accumulated_text_this_api_call = content_data # Partial text
-                         print("Received 'stopped' signal from client.")
-                         break # Exit inner loop
+                        stopped_this_api_call = True
+                        accumulated_text_this_api_call = content_data # Partial text
+                        print("Received 'stopped' signal from client.")
+                        break # Exit inner loop
 
                     # Handle UI feedback events if client yields them
                     elif chunk_type in ["tool_call", "tool_result", "status"]:
