@@ -5,16 +5,20 @@
       "description": "Manages the project, breaks down tasks, and assigns them to specialists."
     },
     {
-      "name": "Frontend Developer",
-      "description": "Develops user interfaces using web technologies."
+      "name": "Architect",
+      "description": "Analyzes the initial user request and defines the required team of personas and a high-level plan."
     },
     {
-      "name": "Architect",
-      "description": "Analyzes the initial user request and defines the required team of personas."
+      "name": "Developer",
+      "description": "A general-purpose software developer for executing coding tasks."
+    },
+    {
+      "name": "Frontend Developer",
+      "description": "A specialist developer who implements user interfaces using web technologies."
     },
     {
       "name": "Test Engineer",
-      "description": "Used to to a single function for testing purposes"
+      "description": "Executes specific, verifiable actions for testing system components and workflows."
     }
   ]
 }

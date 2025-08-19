@@ -1,4 +1,4 @@
-# build_database.py
+# tool_vdb/build_database.py
 import os
 import importlib.util
 import inspect

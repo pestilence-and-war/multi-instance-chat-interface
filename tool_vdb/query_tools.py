@@ -1,4 +1,4 @@
-# query_tools.py
+# tool_vdb/query_tools.py
 import chromadb
 import ollama
 import json
