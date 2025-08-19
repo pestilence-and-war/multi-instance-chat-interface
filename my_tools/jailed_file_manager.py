@@ -160,7 +160,7 @@ def jailed_move_file(source_path: str, destination_path: str) -> str:
 
 def setup_digital_office_structure() -> str:
     """
-    (Medium-Cost) Creates the standard "Digital Office" directory structure for AATFS.
+    (Low-Cost) Creates the standard "Digital Office" directory structure for AATFS.
     This tool is idempotent; it will not fail if the directories already exist.
     It creates the following structure:
     - personas/

@@ -1,0 +1,8 @@
+{
+  "task_id": "task_001",
+  "description": "Set up the initial project structure for the AATFS system. This includes creating the digital office directories (personas, tasks, archive) and the initial personas (Architect, Project Manager, Developer).",
+  "persona": "Project Manager",
+  "dependencies": [],
+  "output_path": null, 
+  "status": "pending"
+}
