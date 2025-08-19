@@ -1,143 +1,179 @@
+# event_monitor.py
+
 import os
 import time
 import json
-from chat_instance import ChatInstance
-from my_tools.persona_manager import PersonaManager
-from my_tools.jailed_file_manager import JailedFileManager
+import logging
+import traceback
+from dotenv import load_dotenv
+
+# Import the singleton and helper function
+from chat_manager import chat_manager
+from my_tools.persona_manager import get_persona_details
+load_dotenv()
+
+# Configure logging to file
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - [EventMonitor] - %(message)s',
+    handlers=[
+        logging.FileHandler("monitor_logs.txt"),
+        logging.StreamHandler()
+    ]
+)
 
 class EventMonitor:
-    def __init__(self, project_root=".", mode="auto"):
+    def __init__(self, project_root=".", mode="auto", provider_name="Google", model_name="gemini-2.5-flash"):
         self.project_root = os.path.abspath(project_root)
         self.tasks_dir = os.path.join(self.project_root, "tasks")
         self.deliverables_dir = os.path.join(self.project_root, "archive", "deliverables")
         self.mode = mode
-        self.processed_files = set() # To avoid processing the same event multiple times
-        self.persona_manager = PersonaManager()
-        self.file_manager = JailedFileManager(self.project_root)
+        self.provider_name = provider_name
+        self.model_name = model_name
+
+        # Use a state file to track processed files, making it resilient to restarts
+        self.state_file = os.path.join(self.project_root, "monitor_state.json")
+        self.processed_files = self._load_state()
+
+    def _load_state(self):
+        if os.path.exists(self.state_file):
+            with open(self.state_file, 'r') as f:
+                return set(json.load(f))
+        return set()
+
+    def _save_state(self):
+        with open(self.state_file, 'w') as f:
+            json.dump(list(self.processed_files), f)
 
     def run(self):
-        """The main, infinite loop of the monitor."""
-        print("AATFS Event Monitor started. Watching for file system events...")
+        logging.info(f"AATFS Event Monitor started in '{self.mode}' mode.")
         while True:
-            self.scan_and_trigger()
-            time.sleep(5) # Polling interval of 5 seconds
+            try:
+                if self.mode == "stepped" and os.path.exists(os.path.join(self.tasks_dir, "review_pending.lock")):
+                    logging.info("Paused. Awaiting user approval for a task in '3_review'.")
+                    time.sleep(10)
+                    continue
+
+                self.scan_and_trigger()
+            except Exception as e:
+                logging.error(f"FATAL ERROR in main loop: {e}\n{traceback.format_exc()}")
+            time.sleep(5)
 
     def scan_and_trigger(self):
-        """
-        Scans all monitored directories and triggers the appropriate handlers.
-        The order of checks is important to ensure logical consistency.
-        1. Check for deliverables (completed work).
-        2. Check for assigned tasks (work in progress).
-        3. Check for pending tasks (new work to be assigned).
-        """
-        # Implementation will call the handler methods below
-        if self.mode == "stepped" and self.file_manager.file_exists(os.path.join(self.project_root, "review_pending.lock")):
-            print("Monitor paused pending user review.")
-            return
-
+        # The order of checks is critical for logical workflow
         self.handle_new_deliverables()
         self.handle_assigned_tasks()
+        lock_file_path = os.path.join(self.tasks_dir, "pm_assigning.lock")
+        if not os.path.exists(lock_file_path):
+            self.handle_pending_tasks()
+        else:
+            logging.info("Skipping pending task check: Project Manager assignment is in progress (lock file exists).")
         self.handle_pending_tasks()
+        self._save_state()
 
     def handle_new_deliverables(self):
-        """
-        Event: A new file appears in /archive/deliverables/.
-        Trigger: Activate the Project Manager to process the completed task.
-        """
-        # Logic to find new files in the deliverables dir, construct a prompt,
-        # and call trigger_persona() for the "Project Manager".
-        for root, _, files in os.walk(self.deliverables_dir):
-            for file_name in files:
-                file_path = os.path.join(root, file_name)
-                if file_path not in self.processed_files:
-                    print(f"New deliverable detected: {file_path}")
-                    prompt = f"A new deliverable '{file_name}' has been added to the archive. Please process this completed task."
-                    self.trigger_persona("Project Manager", prompt)
-                    self.processed_files.add(file_path)
+        path = self.deliverables_dir
+        for filename in os.listdir(path):
+            filepath = os.path.join(path, filename)
+            if filepath not in self.processed_files:
+                logging.info(f"New Deliverable Detected: {filename}")
+                prompt = (
+                    f"A new deliverable has been created at 'archive/deliverables/{filename}'. "
+                    "Your task is to identify which task in 'tasks/1_assigned/' or 'tasks/3_review/' this deliverable satisfies. "
+                    f"Then, move that task's JSON file to the 'tasks/4_done/' directory. Finally, check the 'tasks/0_pending/' directory to see if you can assign the next task."
+                )
+                self.trigger_persona_and_run("Project Manager", prompt)
+                self.processed_files.add(filepath)
 
     def handle_assigned_tasks(self):
-        """
-        Event: A new task file appears in a specialist queue (e.g., /tasks/1_assigned/).
-        Trigger: Activate the specialist persona named in the task file.
-        """
-        # Logic to find new files in the assigned dir, parse the task JSON to get
-        # the 'persona' field, and call trigger_persona() for that specialist.
-        assigned_tasks_dir = os.path.join(self.tasks_dir, "1_assigned")
-        for root, _, files in os.walk(assigned_tasks_dir):
-            for file_name in files:
-                if file_name.endswith(".json"):
-                    file_path = os.path.join(root, file_name)
-                    if file_path not in self.processed_files:
-                        print(f"New assigned task detected: {file_path}")
-                        try:
-                            with open(file_path, 'r') as f:
-                                task_data = json.load(f)
-                            persona_name = task_data.get("persona")
-                            task_description = task_data.get("description", "No description provided.")
-                            if persona_name:
-                                prompt = f"A new task '{file_name}' has been assigned to you: {task_description}. Please begin working on it."
-                                self.trigger_persona(persona_name, prompt)
-                                self.processed_files.add(file_path)
-                            else:
-                                print(f"Warning: Task file {file_name} in 1_assigned is missing 'persona' field.")
-                        except json.JSONDecodeError:
-                            print(f"Error: Could not decode JSON from {file_name}.")
-                        except Exception as e:
-                            print(f"An error occurred processing {file_name}: {e}")
+        path = os.path.join(self.tasks_dir, "1_assigned")
+        for filename in os.listdir(path):
+            filepath = os.path.join(path, filename)
+            if filepath not in self.processed_files:
+                try:
+                    with open(filepath, 'r') as f:
+                        task_data = json.load(f)
+                    
+                    specialist_persona = task_data.get("persona")
+                    if not specialist_persona:
+                        logging.warning(f"Task file {filename} has no 'persona' field. Skipping.")
+                        continue
+
+                    logging.info(f"New Assigned Task Detected: {filename} for persona '{specialist_persona}'")
+                    prompt = (
+                        f"You have been assigned a new task. The task details are in the file 'tasks/1_assigned/{filename}'. "
+                        "Read the contents of this file, execute the task described, and save your deliverable to the specified 'output_path'."
+                    )
+                    self.trigger_persona_and_run(specialist_persona, prompt)
+                    self.processed_files.add(filepath)
+                except Exception as e:
+                    logging.error(f"Error processing assigned task {filename}: {e}")
+                    # Consider moving the file to '5_failed' here
+                    self.processed_files.add(filepath)
 
     def handle_pending_tasks(self):
-        """
-        Event: A file exists in /tasks/0_pending/.
-        Trigger: Activate the Project Manager to assign the next task.
-        """
-        # Logic to check if 0_pending is non-empty, construct a prompt,
-        # and call trigger_persona() for the "Project Manager".
-        pending_tasks_dir = os.path.join(self.tasks_dir, "0_pending")
-        if os.path.exists(pending_tasks_dir) and os.listdir(pending_tasks_dir):
-            for root, _, files in os.walk(pending_tasks_dir):
-                for file_name in files:
-                    file_path = os.path.join(root, file_name)
-                    if file_path not in self.processed_files:
-                        print(f"Pending task detected: {file_name}")
-                        prompt = f"There are new tasks in the '{os.path.basename(pending_tasks_dir)}' directory. Please review and assign the next task: {file_name}."
-                        self.trigger_persona("Project Manager", prompt)
-                        self.processed_files.add(file_path)
+        path = os.path.join(self.tasks_dir, "0_pending")
+        if any(f for f in os.listdir(path) if f.endswith('.json')):
+            logging.info("Pending tasks found. Acquiring lock and triggering Project Manager.")
+             
+            # --- CREATE THE LOCK FILE FIRST ---
+            lock_file_path = os.path.join(self.tasks_dir, "pm_assigning.lock")
+            with open(lock_file_path, 'w') as f:
+                f.write(f"Locked at {time.time()}")
+             
+            prompt = (
+                "There are tasks in the 'tasks/0_pending/' directory. "
+                "Your job is to assign the next available task by moving its file to 'tasks/1_assigned/'. "
+                "After you have successfully moved the file, you MUST perform one final, critical action: "
+                "use the `jailed_delete_file` tool to delete the lock file located at 'tasks/pm_assigning.lock'. "
+                "This signals that you are done and the system can continue."
+            )
+            self.trigger_persona_and_run("Project Manager", prompt)
 
-    def trigger_persona(self, persona_name, prompt):
-        """
-        The core activation logic. Instantiates and runs a persona headlessly.
-        """
-        print(f"Triggering persona: {persona_name} with prompt: {prompt}")
+
+    def trigger_persona_and_run(self, persona_name, prompt):
+        instance = None
         try:
-            # 1. Load the persona's JSON configuration using persona_manager.
-            persona_data = self.persona_manager.get_persona(persona_name)
-            if not persona_data:
-                print(f"Error: Persona '{persona_name}' not found.")
-                return
+            logging.info(f"--- Triggering Persona: '{persona_name}' ---")
+            
+            # 1. Get Persona Details using our new helper
+            details_str = get_persona_details(persona_name)
+            details = json.loads(details_str)
+            if details.get("status") == "error":
+                raise ValueError(details.get("message"))
 
-            # 2. Instantiate a ChatInstance with the persona's system_prompt and tools.
-            # Assuming ChatInstance can take persona_data directly or needs specific fields
-            # We'll need to check chat_instance.py for the exact constructor
-            # For now, let's assume it needs system_prompt and tools_list
-            system_prompt = persona_data.get("system_prompt", "")
-            tools_list = persona_data.get("tools", []) # Assuming tools are listed here
-
-            # This part will likely need adjustment after reviewing chat_instance.py
-            # Placeholder for now:
-            # chat_instance = ChatInstance(system_prompt=system_prompt, tools_list=tools_list)
-
-            # 3. Add the initial prompt as the first user message.
-            # 4. Programmatically run the chat loop.
-            # This is the part that will require a new method in chat_instance.py
-            # For now, let's just print a placeholder action.
-            print(f"Simulating headless run for {persona_name} with prompt: {prompt}")
-            # chat_instance.run_headless(initial_prompt=prompt) # This method needs to be added
-
-            print(f"Persona {persona_name} finished processing event.")
+            # 2. Create a temporary ChatInstance via the ChatManager
+            logging.info(f"Creating instance with provider: {self.provider_name}")
+            instance = chat_manager.create_instance(provider_name=self.provider_name)
+            if not instance:
+                raise RuntimeError("Failed to create ChatInstance via ChatManager.")
+            
+            instance.name = f"AATFS_HEADLESS_{persona_name}_{instance.instance_id[:4]}"
+            
+            # 3. Configure the instance to be the persona
+            instance.set_config(system_prompt=details.get("system_prompt"), model=self.model_name)
+            for tool_name in details.get("tools", []):
+                module_path = instance.tool_function_to_module_map.get(tool_name)
+                if module_path:
+                    instance.register_tool_from_config(name=tool_name, module_path=module_path, function_name=tool_name)
+                else:
+                    logging.warning(f"Tool '{tool_name}' for persona '{persona_name}' not found in tool map.")
+            
+            # 4. Execute the headless turn using our new method
+            logging.info(f"Running prompt for '{persona_name}': '{prompt}'")
+            result = instance.execute_headless_turn(prompt)
+            logging.info(f"Persona '{persona_name}' finished. Status: {result['status']}. Output: {result['content']}")
 
         except Exception as e:
-            print(f"Error triggering persona {persona_name}: {e}")
+            logging.error(f"An error occurred while running persona '{persona_name}': {e}\n{traceback.format_exc()}")
+        finally:
+            # 5. VERY IMPORTANT: Clean up the temporary instance
+            if instance:
+                chat_manager.remove_instance(instance.instance_id)
+                logging.info(f"Cleaned up temporary instance {instance.instance_id} for '{persona_name}'.")
+            logging.info(f"--- Persona Trigger Finished: '{persona_name}' ---")
+
 
 if __name__ == "__main__":
-    monitor = EventMonitor()
+    monitor = EventMonitor(provider_name="Google", model_name="gemini-2.5-flash")
     monitor.run()

@@ -1,8 +1,0 @@
-{
-  "task_id": "task_003",
-  "description": "Develop the user interface for the AATFS. This includes creating the HTML, CSS, and JavaScript files needed to build a responsive and intuitive UI. The initial focus will be on creating a chat interface that allows users to interact with the system.",
-  "persona": "Developer",
-  "dependencies": ["task_002"],
-  "output_path": "/static/",
-  "status": "pending"
-}

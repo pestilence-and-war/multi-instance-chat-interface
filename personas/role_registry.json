@@ -11,6 +11,10 @@
     {
       "name": "Architect",
       "description": "Analyzes the initial user request and defines the required team of personas."
+    },
+    {
+      "name": "Test Engineer",
+      "description": "Used to to a single function for testing purposes"
     }
   ]
 }

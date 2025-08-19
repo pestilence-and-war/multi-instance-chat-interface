@@ -56,27 +56,29 @@ def list_personas() -> str:
 
 def get_persona_details(persona_name: str) -> str:
     """
-    (Low-Cost) Retrieves the full configuration details for a specific persona.
+    Reads the JSON configuration file for a given persona.
 
-    @param persona_name (string): The name of the persona to retrieve. REQUIRED.
-
-    Returns:
-        str: A JSON string containing the persona's details or an error message.
+    @param persona_name (string): The name of the persona to read (e.g., "Project Manager"). Required.
+    @return (string): A JSON string of the persona's configuration, or an error JSON if not found.
     """
-    path_result = _get_persona_path(persona_name)
-    if path_result["status"] == "error":
-        return json.dumps(path_result, indent=2)
-    
-    full_path = path_result["path"]
-    if not os.path.exists(full_path):
-        return json.dumps({"status": "error", "message": f"Persona '{persona_name}' not found."}, indent=2)
-
+    PERSONAS_DIR = os.path.join(_get_project_root(), 'personas')
     try:
-        with open(full_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return json.dumps({"status": "success", "persona_details": data}, indent=2)
-    except (json.JSONDecodeError, IOError) as e:
-        return json.dumps({"status": "error", "message": f"Failed to read or parse persona file: {e}"}, indent=2)
+        # Sanitize name to create a safe filename
+        safe_filename = persona_name.replace(" ", "_") + ".json"
+        filepath = os.path.join(PERSONAS_DIR, safe_filename)
+
+        if not os.path.exists(filepath):
+            # Try with original name as filename for backward compatibility
+            filepath_alt = os.path.join(PERSONAS_DIR, persona_name + ".json")
+            if not os.path.exists(filepath_alt):
+                 return json.dumps({"status": "error", "message": f"Persona file for '{persona_name}' not found."})
+            filepath = filepath_alt
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            details = json.load(f)
+        return json.dumps(details) # Return as a JSON string for consistency
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Error reading persona file: {e}"})
 
 def create_persona(persona_name: str, persona_data: str) -> str:
     """

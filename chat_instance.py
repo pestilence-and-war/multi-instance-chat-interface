@@ -689,6 +689,87 @@ class ChatInstance:
             except Exception as e:
                 print(f"Error saving state/log after generation: {e}")
 
+    def execute_headless_turn(self, prompt: str) -> dict:
+        """
+        Executes a single, synchronous turn of conversation for a headless agent.
+        It runs the full tool-use loop until a final text response is ready.
+        This does NOT modify the instance's main chat_history.
+
+        @param prompt (string): The user/system prompt for this turn.
+        @return (dict): A dictionary containing the final 'status' ('success', 'error', 'stopped')
+                         and the final 'content' (the assistant's message or error details).
+        """
+        if not self.api_client or not self.selected_model:
+            return {"status": "error", "content": "Headless execution failed: Not connected or no model selected."}
+
+        # Prepare a temporary message history for this single turn
+        messages_to_send = self._prepare_messages_for_api()
+        messages_to_send.append({"role": "user", "content": prompt})
+        
+        config = {"model": self.selected_model, **self.generation_params}
+        max_tool_cycles = 5
+        cycles = 0
+        final_status = "error"
+        final_content = "An unexpected error occurred in the headless execution loop."
+
+        try:
+            while cycles < max_tool_cycles:
+                cycles += 1
+                if not self.api_client:
+                    raise ConnectionError("API Client lost during generation cycle.")
+
+                # This is a simplified, non-streaming version of the generation loop
+                response_generator = self.api_client.send_message_stream_yield(messages_to_send, config, threading.Event(), instance=self)
+                
+                accumulated_text = ""
+                tool_calls_from_api = []
+                client_finished_normally = False
+
+                for chunk_type, content_data in response_generator:
+                    if chunk_type == "chunk":
+                        accumulated_text += content_data
+                    elif chunk_type == "tool_calls":
+                        tool_calls_from_api = content_data.get("calls", [])
+                        accumulated_text = content_data.get("text", accumulated_text)
+                        client_finished_normally = True
+                        break
+                    elif chunk_type == "finish":
+                        accumulated_text = content_data
+                        client_finished_normally = True
+                        break
+                    elif chunk_type == "error":
+                        raise RuntimeError(f"API client returned an error: {content_data}")
+                
+                if not client_finished_normally:
+                    raise RuntimeError("API stream ended unexpectedly without a finish or tool_calls signal.")
+
+                if tool_calls_from_api:
+                    assistant_request_msg = {"role": "assistant", "content": accumulated_text, "tool_calls": tool_calls_from_api}
+                    messages_to_send.append(assistant_request_msg)
+
+                    for tool_call in tool_calls_from_api:
+                        tool_name = tool_call["name"]
+                        arguments = tool_call["arguments"]
+                        tool_result_str = self.api_client.execute_tool(tool_name, arguments)
+                        messages_to_send.append({"role": "tool", "name": tool_name, "content": tool_result_str})
+                    continue # Continue to the next cycle
+                else:
+                    # No tool calls, we are done
+                    final_status = "success"
+                    final_content = accumulated_text
+                    break # Exit the loop
+            
+            if cycles >= max_tool_cycles:
+                final_status = "error"
+                final_content = "Exceeded maximum tool cycles."
+
+        except Exception as e:
+            final_status = "error"
+            final_content = f"Error during headless execution: {e}"
+            traceback.print_exc()
+
+        return {"status": final_status, "content": final_content}
+
     def stop_generation(self):
         if self.is_generating:
             print(f"Instance {self.instance_id}: Stop requested.")
