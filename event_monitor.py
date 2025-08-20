@@ -311,7 +311,7 @@ class EventMonitor:
 
     def trigger_persona_and_run(self, persona_name, prompt, task_filepath=None, is_deliverable=False):
         """
-        Triggers an LLM persona to execute a task.
+        Triggers an LLM persona to execute a task, using detailed configuration from the persona file.
         Returns a dict with 'status' (success/failure) and 'content' (LLM's final output).
         """
         instance = None
@@ -319,22 +319,38 @@ class EventMonitor:
         try:
             logging.info(f"--- Triggering Persona: '{persona_name}' ---")
 
-            # 1. Get Persona Details using our new helper
+            # 1. Get Persona Details
             details_str = get_persona_details(persona_name)
             details = json.loads(details_str)
             if details.get("status") == "error":
                 raise ValueError(details.get("message"))
 
-            # 2. Create a temporary ChatInstance via the ChatManager
-            logging.info(f"Creating instance with provider: {self.provider_name}")
-            instance = chat_manager.create_instance(provider_name=self.provider_name)
+            # --- NEW: Extract detailed model and generation configuration ---
+            # Fallback to monitor's defaults if persona file doesn't specify them.
+            model_config = details.get("model_config", {})
+            provider_name = model_config.get("provider", self.provider_name)
+            model_name = model_config.get("model_name", self.model_name)
+            generation_params = model_config.get("generation_params", {})
+            temperature = generation_params.get("temperature") # Can be None
+            top_p = generation_params.get("top_p")             # Can be None
+
+            # 2. Create a temporary ChatInstance via the ChatManager using the persona's provider
+            logging.info(f"Creating instance with provider: {provider_name} for persona '{persona_name}'")
+            instance = chat_manager.create_instance(provider_name=provider_name)
             if not instance:
                 raise RuntimeError("Failed to create ChatInstance via ChatManager.")
 
             instance.name = f"AATFS_HEADLESS_{persona_name}_{instance.instance_id[:4]}"
 
-            # 3. Configure the instance to be the persona
-            instance.set_config(system_prompt=details.get("system_prompt"), model=self.model_name)
+            # 3. Configure the instance with persona-specific settings
+            instance.set_config(
+                system_prompt=details.get("system_prompt"),
+                model=model_name,
+                temp=temperature, # Pass the specific temperature
+                top_p=top_p         # Pass the specific top_p
+            )
+            
+            # 4. Register tools
             for tool_name in details.get("tools", []):
                 module_path = instance.tool_function_to_module_map.get(tool_name)
                 if module_path:
@@ -342,7 +358,7 @@ class EventMonitor:
                 else:
                     logging.warning(f"Tool '{tool_name}' for persona '{persona_name}' not found in tool map.")
 
-            # 4. Execute the headless turn using our new method
+            # 5. Execute the headless turn
             logging.info(f"Running prompt for '{persona_name}': '{prompt}'")
             llm_response = instance.execute_headless_turn(prompt)
 
@@ -356,7 +372,7 @@ class EventMonitor:
             result['status'] = "failure"
             result['content'] = f"Error: {e}"
         finally:
-            # 5. VERY IMPORTANT: Clean up the temporary instance
+            # 6. Clean up the temporary instance
             if instance:
                 chat_manager.remove_instance(instance.instance_id)
                 logging.info(f"Cleaned up temporary instance {instance.instance_id} for '{persona_name}'.")
