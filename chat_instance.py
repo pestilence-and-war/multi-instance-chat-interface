@@ -707,7 +707,7 @@ class ChatInstance:
         messages_to_send.append({"role": "user", "content": prompt})
         
         config = {"model": self.selected_model, **self.generation_params}
-        max_tool_cycles = 5
+        max_tool_cycles = self.generation_params.get("max_tool_cycles", 10)
         cycles = 0
         final_status = "error"
         final_content = "An unexpected error occurred in the headless execution loop."
