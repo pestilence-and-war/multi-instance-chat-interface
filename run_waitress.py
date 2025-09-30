@@ -9,5 +9,5 @@ print(f"\n\n--- PYTHON IS SEARCHING THESE PATHS FOR MODULES ---")
 pprint.pprint(sys.path)
 print("----------------------------------------------------\n\n")
 
-serve(app.app, host='0.0.0.0', port=5000, threads=8)
+serve(app.app, host='0.0.0.0', port=5001, threads=8)
 load_dotenv()

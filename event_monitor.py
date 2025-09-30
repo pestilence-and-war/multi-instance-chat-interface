@@ -383,9 +383,9 @@ class EventMonitor:
 if __name__ == "__main__":
     # Example usage:
     # Run in 'auto' mode:
-    # monitor = EventMonitor(mode="auto", provider_name="Google", model_name="gemini-2.5-flash", polling_interval=15)
+    monitor = EventMonitor(mode="auto", provider_name="Google", model_name="gemini-2.5-flash", polling_interval=15)
 
     # Run in 'stepped' mode for human review:
-    monitor = EventMonitor(mode="stepped", provider_name="Google", model_name="gemini-2.5-flash", polling_interval=15)
+    # monitor = EventMonitor(mode="stepped", provider_name="Google", model_name="gemini-2.5-flash", polling_interval=15)
 
     monitor.run()

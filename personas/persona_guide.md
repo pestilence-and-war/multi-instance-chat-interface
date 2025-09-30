@@ -62,6 +62,7 @@ Notice the `model_config`: Caesar uses a powerful, reasoning-focused model (`gem
   "tools": [
     "create_new_task_file",
     "list_files",
+    "get_directory_tree",
     "read_file"
   ]
 }```
