@@ -34,14 +34,16 @@ class EventMonitor:
         self.tasks_dir = os.path.join(self.project_root, "tasks")
         self.pending_dir = os.path.join(self.tasks_dir, "0_pending")
         self.assigned_dir = os.path.join(self.tasks_dir, "1_assigned")
+        self.testing_dir = os.path.join(self.tasks_dir, "2_testing") # New: For testing
         self.review_dir = os.path.join(self.tasks_dir, "3_review")
         self.done_dir = os.path.join(self.tasks_dir, "4_done")
-        self.failed_dir = os.path.join(self.tasks_dir, "5_failed") # New: For failed tasks
+        self.failed_dir = os.path.join(self.tasks_dir, "5_failed")
+        self.failed_test_dir = os.path.join(self.tasks_dir, "6_failed_test") # New: For failed tests
 
         self.deliverables_dir = os.path.join(self.project_root, "archive", "deliverables")
 
         # Ensure all necessary directories exist
-        for d in [self.tasks_dir, self.pending_dir, self.assigned_dir, self.review_dir, self.done_dir, self.failed_dir, self.deliverables_dir]:
+        for d in [self.tasks_dir, self.pending_dir, self.assigned_dir, self.testing_dir, self.review_dir, self.done_dir, self.failed_dir, self.failed_test_dir, self.deliverables_dir]:
             os.makedirs(d, exist_ok=True)
 
         self.mode = mode
@@ -149,6 +151,7 @@ class EventMonitor:
     def scan_and_trigger(self):
         # The order of checks is critical for logical workflow
         self.handle_new_deliverables()
+        self.handle_testing_tasks() # New: Handle tasks awaiting testing
         self.handle_assigned_tasks() # This handles retries and moves to failed
 
         if not os.path.exists(self.pm_assigning_lock):
@@ -166,12 +169,11 @@ class EventMonitor:
             if filepath not in self.processed_files:
                 logging.info(f"New Deliverable Detected: {filename}")
                 prompt = (
-                    f"A new deliverable has been created at 'archive/deliverables/{filename}'. "
-                    "Your task is to identify which task in 'tasks/1_assigned/' or 'tasks/3_review/' this deliverable satisfies. "
-                    f"Then, move that task's JSON file to the 'tasks/4_done/' directory if the system is in 'auto' mode, "
-                    f"or to 'tasks/3_review/' if in 'stepped' mode. If moving to '3_review/', you MUST also create a lock file "
-                    f"named 'review_pending.lock' in the 'tasks/' directory to signal human review is needed. "
-                    f"Finally, check the 'tasks/0_pending/' directory to see if you can assign the next task."
+                    f"A new deliverable has been created: 'archive/deliverables/{filename}'. "
+                    "As the Project Manager, your job is to process this deliverable according to the current project workflow. "
+                    "This could be a deliverable from a Developer, a Test Report from a Test Engineer, or something else. "
+                    "Your instructions are in your system prompt. You need to identify the related task, evaluate the deliverable, and move the task file to the correct next stage (e.g., '2_testing', '4_done', '6_failed_test', etc.) or create a new task if necessary (e.g., for a bug fix). "
+                    "Consult your system prompt for the detailed workflow rules."
                 )
 
                 # The PM needs to know the current mode to decide where to move the task
@@ -180,12 +182,78 @@ class EventMonitor:
                     mode_info += "Remember to create 'tasks/review_pending.lock' if moving to '3_review'."
 
                 self.trigger_persona_and_run(
-                    persona_name="Project Manager", 
+                    persona_name="Project Manager",
                     prompt=mode_info + prompt,
                     task_filepath=filepath, # Pass deliverable path for state tracking if needed
                     is_deliverable=True # Flag to indicate this is a deliverable event
                 )
                 self.processed_files.add(filepath) # Mark the deliverable itself as processed
+
+    def handle_testing_tasks(self):
+        # This function is for triggering the Test Engineer on tasks in the '2_testing' folder.
+        for filename in list(os.listdir(self.testing_dir)):
+            filepath = os.path.join(self.testing_dir, filename)
+
+            try:
+                with open(filepath, 'r') as f:
+                    task_data = json.load(f)
+
+                # Use the same retry and backoff logic as assigned_tasks
+                retries_attempted = task_data.get("retries_attempted", 0)
+                last_attempt_time_str = task_data.get("last_attempt_time")
+
+                if last_attempt_time_str:
+                    last_attempt_dt = datetime.fromisoformat(last_attempt_time_str)
+                    required_wait_seconds = self.initial_backoff_seconds * (2 ** retries_attempted)
+                    if (datetime.now() - last_attempt_dt).total_seconds() < required_wait_seconds:
+                        logging.info(f"Testing task {filename} is in backoff period. Skipping.")
+                        continue
+
+                if retries_attempted >= self.max_llm_retries:
+                    logging.error(f"Testing task {filename} exceeded max retries. Moving to '5_failed'.")
+                    if self._update_task_status(filepath, "failed", retries_attempted):
+                        self._move_file(filepath, self.failed_dir)
+                    continue
+
+                logging.info(f"Processing Testing Task: {filename} (Attempt: {retries_attempted + 1}/{self.max_llm_retries})")
+                prompt = (
+                    f"A task is ready for you to test. The task details are in 'tasks/2_testing/{filename}'. "
+                    "Read the file, locate the deliverable specified, execute your testing protocol, and create a PASS/FAIL report as your deliverable. "
+                    "Do NOT move the task file; the Project Manager will handle that after reviewing your report."
+                )
+
+                self._update_task_status(filepath, "testing_in_progress", retries_attempted, datetime.now())
+
+                result = self.trigger_persona_and_run("The Test Engineer", prompt, task_filepath=filepath)
+
+                if result['status'] == "success":
+                    logging.info(f"Test Engineer successfully processed task {filename}.")
+                    # The task remains in '2_testing' until the PM processes the Test Report.
+                    # We reset its retry count for the PM's next step.
+                    self._update_task_status(filepath, "testing_complete", 0, datetime.now())
+                else:
+                    retries_attempted += 1
+                    logging.warning(f"Test Engineer persona failed on task {filename}. Retrying (attempt {retries_attempted}).")
+                    # Update status back to 'testing_pending' for the next retry by this loop
+                    if not self._update_task_status(filepath, "testing_pending", retries_attempted, datetime.now()):
+                        logging.error(f"Failed to update task status for {filename} after Test Engineer failure.")
+
+            except json.JSONDecodeError:
+                logging.error(f"Invalid JSON in testing task {filename}. Moving to '5_failed'.")
+                self._move_file(filepath, self.failed_dir)
+            except Exception as e:
+                logging.error(f"Error processing testing task {filename}: {e}\n{traceback.format_exc()}")
+                # Generic error handling, retry as well
+                retries_attempted = task_data.get("retries_attempted", 0) + 1
+                if retries_attempted >= self.max_llm_retries:
+                    logging.error(f"Task {filename} reached max retries due to monitor error. Moving to '5_failed'.")
+                    if self._update_task_status(filepath, "failed", retries_attempted, datetime.now()):
+                        self._move_file(filepath, self.failed_dir)
+                else:
+                    logging.warning(f"Task {filename} encountered monitor error. Retrying (attempt {retries_attempted}).")
+                    if not self._update_task_status(filepath, "testing_pending", retries_attempted, datetime.now()):
+                        logging.error(f"Failed to update task status for {filename} after monitor error.")
+
 
     def handle_assigned_tasks(self):
         # Iterate over a copy of the list to allow modification during iteration
