@@ -122,14 +122,39 @@
                 }
                 try {
                     const data = JSON.parse(event.data);
+                    const chatDisplay = targetElement.closest('[id^="chat-display-"]');
+                    const thinkingIndicator = chatDisplay ? chatDisplay.querySelector('.thinking-indicator') : null;
+
                     if (data.type === 'chunk') {
+                        if (thinkingIndicator) thinkingIndicator.remove();
                         const span = document.createElement('span');
                         span.innerHTML = marked.parseInline(data.content);
                         span.classList.add('stream-chunk');
                         proseTarget.appendChild(span);
                         if (chatDisplay) chatDisplay.scrollTop = chatDisplay.scrollHeight;
                         if (timestampTarget) timestampTarget.textContent = 'Streaming...';
+                    } else if (data.type === 'thinking') {
+                        if (!chatDisplay) return;
+                        let indicator = thinkingIndicator;
+                        if (!indicator) {
+                            indicator = document.createElement('div');
+                            indicator.className = 'mb-3 flex justify-center thinking-indicator';
+                            chatDisplay.appendChild(indicator);
+                        }
+                        indicator.innerHTML = `
+                            <div class="bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 p-2 rounded-lg shadow-sm text-xs w-full max-w-md">
+                                <div class="flex items-center justify-center">
+                                    <svg class="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <i>Thinking... ${data.content || ''}</i>
+                                </div>
+                            </div>
+                        `;
+                        chatDisplay.scrollTop = chatDisplay.scrollHeight;
                     } else if (data.type === 'finish' || data.type === 'stopped') {
+                        if (thinkingIndicator) thinkingIndicator.remove();
                         evtSource.close();
                         delete window.sseSources[instanceId];
                         htmx.ajax('GET', `/chat/${instanceId}/last_message`, { target: `#${targetElementId}`, swap: 'outerHTML' })
@@ -138,6 +163,7 @@
                                 enableChatInput(instanceId);
                             });
                     } else if (data.type === 'error') {
+                        if (thinkingIndicator) thinkingIndicator.remove();
                         evtSource.close();
                         delete window.sseSources[instanceId];
                         targetElement.innerHTML = `<div class="mb-3"><div class="bg-red-100 text-red-700 p-3 rounded-lg border border-red-300 shadow"><strong>Error:</strong> ${data.content || 'Unknown stream error.'}</div></div>`;

@@ -279,6 +279,13 @@ class OllamaClient(BaseApiClient):
                                     })
                         if chunk.get("done") is True:
                             if accumulated_tool_calls:
+                                # First, yield a "thinking" event for each tool.
+                                for tool_call in accumulated_tool_calls:
+                                    tool_name = tool_call.get("name")
+                                    if tool_name:
+                                        yield ("thinking", tool_name)
+
+                                # Then, yield the tool_calls event as before.
                                 yield ("tool_calls", {"calls": accumulated_tool_calls, "text": full_response_content})
                             else:
                                 yield ("finish", full_response_content)
