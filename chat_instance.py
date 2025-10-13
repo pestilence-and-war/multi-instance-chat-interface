@@ -519,8 +519,6 @@ class ChatInstance:
                     if chunk_type == "chunk":
                         accumulated_text_this_api_call += content_data
                         self.sse_queue.put(json.dumps({"type": "chunk", "content": content_data}))
-                    elif chunk_type == "thinking":
-                        self.sse_queue.put(json.dumps({"type": "thinking", "content": content_data}))
                     elif chunk_type == "tool_calls":
                         # Received tool requests from the API client
                         tool_calls_from_api = content_data.get("calls", [])
