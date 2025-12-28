@@ -186,26 +186,26 @@
             const activeButton = document.getElementById(`tab-button-${instanceId}`);
             if (activeButton) activeButton.classList.add('active', 'border-blue-500', 'font-bold', 'text-blue-500');
         }
-        function addCopyButtons() {
-            document.querySelectorAll('pre code:not(.copy-btn-added)').forEach((codeBlock) => {
-                const pre = codeBlock.parentElement;
-                const container = document.createElement('div');
-                container.className = 'code-container relative';
-                pre.replaceWith(container);
-                container.appendChild(pre);
-                const button = document.createElement('button');
-                button.textContent = 'Copy';
-                button.className = 'copy-btn absolute top-2 right-2 px-2 py-1 bg-gray-200 hover:bg-gray-300 text-sm rounded shadow';
-                button.addEventListener('click', () => {
-                    navigator.clipboard.writeText(codeBlock.innerText).then(() => {
-                        button.textContent = 'Copied!';
-                        setTimeout(() => button.textContent = 'Copy', 1500);
-                    });
-                });
-                container.appendChild(button);
-                codeBlock.classList.add('copy-btn-added');
-            });
-        }
+        // function addCopyButtons() {
+        //     document.querySelectorAll('pre code:not(.copy-btn-added)').forEach((codeBlock) => {
+        //         const pre = codeBlock.parentElement;
+        //         const container = document.createElement('div');
+        //         container.className = 'code-container relative';
+        //         pre.replaceWith(container);
+        //         container.appendChild(pre);
+        //         const button = document.createElement('button');
+        //         button.textContent = 'Copy';
+        //         button.className = 'copy-btn absolute top-2 right-2 px-2 py-1 bg-gray-200 hover:bg-gray-300 text-sm rounded shadow';
+        //         button.addEventListener('click', () => {
+        //             navigator.clipboard.writeText(codeBlock.innerText).then(() => {
+        //                 button.textContent = 'Copied!';
+        //                 setTimeout(() => button.textContent = 'Copy', 1500);
+        //             });
+        //         });
+        //         container.appendChild(button);
+        //         codeBlock.classList.add('copy-btn-added');
+        //     });
+        // }
 
         // HTMX Event Listeners
         document.body.addEventListener('htmx:beforeRequest', function(event) {
@@ -233,7 +233,7 @@
             if (loadedContent && loadedContent.id && loadedContent.id.startsWith('chat-instance-')) {
                 setActiveTab(loadedContent.id.substring(14));
             }
-            addCopyButtons();
+            // addCopyButtons();
         });
         document.body.addEventListener('htmx:responseError', function(event) {
             const instanceId = event.detail.pathInfo.requestPath.split('/')[2];

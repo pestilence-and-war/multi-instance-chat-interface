@@ -12,6 +12,7 @@ from api_clients.base_client import BaseApiClient
 from typing import List, Dict, Any, Tuple, Generator, Callable
 import traceback
 from tool_registry import TOOL_REGISTRY
+from utils import send_text_to_audio_server
 
 def get_params_from_docstring(func: Callable) -> Tuple[str, Dict[str, Any]]:
     """
@@ -487,7 +488,7 @@ class ChatInstance:
     def _run_generation_in_thread(self, initial_messages, config):
         """Handles the conversation loop, including tool execution cycles."""
         current_messages = initial_messages[:] # Work on a copy
-        max_tool_cycles = 5 # Magic number is based on API limits from Google Free and cost control
+        max_tool_cycles = 20 # Magic number is based on API limits from Google Free and cost control
         cycles = 0
         final_event_type = "finish" # Default
         final_assistant_content = "" # Accumulate final text across cycles if needed
@@ -635,6 +636,7 @@ class ChatInstance:
                         # This part remains the same, outside the 'if' block
                         tool_result_messages.append({
                             "role": "tool",
+                            "tool_call_id": tool_call["id"], # <--- CRITICAL FIX
                             "name": tool_name,
                             "content": final_content_for_llm
                         })
@@ -671,6 +673,10 @@ class ChatInstance:
             # Update the official chat history ONLY if no error occurred or was stopped early
             if final_event_type not in ["error"]: # Include 'stopped' here? Maybe only save on 'finish'.
                 self.chat_history = current_messages[:] # Persist the final state including tool calls/results
+
+            #send content for audio output
+            if final_event_type == "finish" and final_assistant_content:
+                send_text_to_audio_server(final_assistant_content)
 
             # Send final SSE event
             if final_event_type == "error":

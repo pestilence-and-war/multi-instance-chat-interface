@@ -423,19 +423,40 @@ def unregister_tool_route(instance_id, tool_name):
     tool_name = tool_name.strip()
     if tool_name in instance.tools_definitions:
         try:
+            # 1. Remove from internal definitions
             del instance.tools_definitions[tool_name]
-            if instance.api_client and tool_name in instance.api_client.registered_tools:
-                del instance.api_client.registered_tools[tool_name]
+
+            # 2. Remove from API Client (Execution Logic & Schema)
+            if instance.api_client:
+                # Remove execution logic
+                if tool_name in instance.api_client.registered_tools:
+                    del instance.api_client.registered_tools[tool_name]
+
+                # Filter the schemas (Fixing the Ghost Tool bug)
                 new_tool_schemas = []
                 for s in instance.api_client.tool_schemas:
                     schema_name = None
-                    if hasattr(s, 'name'):
+                    
+                    # Handle Dictionary schemas (Ollama/OpenAI)
+                    if isinstance(s, dict):
+                        # Case A: Nested format {"type": "function", "function": {"name": ...}}
+                        if "function" in s and isinstance(s["function"], dict) and "name" in s["function"]:
+                             schema_name = s["function"]["name"]
+                        # Case B: Flat format {"name": ...}
+                        elif "name" in s:
+                             schema_name = s["name"]
+                    
+                    # Handle Object schemas (Pydantic/Objects)
+                    elif hasattr(s, 'name'):
                         schema_name = s.name
-                    elif isinstance(s, dict):
-                        schema_name = s.get('name')
+                    
+                    # Only keep it if the name DOES NOT match the tool we are deleting
                     if schema_name != tool_name:
                         new_tool_schemas.append(s)
+                
+                # Apply the clean list
                 instance.api_client.tool_schemas = new_tool_schemas
+
             chat_manager.save_instance_state(instance_id)
             return render_template('partials/tools_manager.html', instance=instance, status_message=f"Tool '{tool_name}' unregistered.", is_error=False)
         except Exception as e:
