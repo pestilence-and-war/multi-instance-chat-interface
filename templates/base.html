@@ -55,6 +55,32 @@
     <button type="button" id="zenThemeToggle" onclick="setTheme('zen')" class="m-2 p-2 border rounded dark:border-gray-600">Toggle Zen Theme</button>
     <button type="button" id="hotseatThemeToggle" onclick="setTheme('hotseat')" class="m-2 p-2 border rounded dark:border-gray-600">The Hotseat</button>
 
+    <!-- PROJECT CONTROLS -->
+    <div class="m-2 p-2 border rounded dark:border-gray-600 inline-flex items-center gap-2">
+        <label for="project-root-input" class="text-sm font-semibold">Project Root:</label>
+        <input type="text" name="project_root" id="project-root-input" value="{{ current_project_root }}" 
+               class="border rounded px-2 py-1 text-sm w-64 dark:bg-gray-800 dark:text-gray-200 font-mono" 
+               placeholder="/path/to/project">
+        <button hx-post="/config/project-root" hx-include="#project-root-input" hx-target="#project-root-status" 
+                class="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600 transition-colors">
+            Set
+        </button>
+        <span id="project-root-status" class="text-xs ml-2"></span>
+
+        <!-- DB Controls -->
+        <div class="ml-4 border-l pl-4 border-gray-300 dark:border-gray-600 flex items-center gap-2">
+            <button hx-post="/project/build-db" 
+                    hx-target="#db-build-status" 
+                    hx-indicator="#db-loading"
+                    hx-confirm="Rebuild the project database? This may take a moment."
+                    class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm transition-colors">
+                Build DB
+            </button>
+            <span id="db-loading" class="htmx-indicator text-xs text-purple-500 font-bold">Building...</span>
+            <span id="db-build-status" class="text-xs"></span>
+        </div>
+    </div>
+
     <div class="container mx-auto p-4 max-w-6xl">
 
         <!-- Hotseat Theme Elements -->
@@ -99,21 +125,28 @@
             }
             const token = Date.now() + "-" + Math.random().toString(36).substring(2);
             window.sseConnectionTokens[instanceId] = token;
+            
+            // Initialize container
             targetElement.innerHTML = `
                 <div class="mb-3 flex justify-start">
                     <div class="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-200 p-3 rounded-lg max-w-xl shadow assistant-message">
-                        <div class="prose prose-sm max-w-none dark:prose-invert" id="prose-${targetElementId}"></div>
+                        <div class="prose prose-sm max-w-none dark:prose-invert markdown-content" id="prose-${targetElementId}"></div>
                         <span class="text-xs text-gray-500 block text-right pt-1" id="ts-${targetElementId}">Loading...</span>
                     </div>
                 </div>
             `;
+            
             const proseTarget = document.getElementById(`prose-${targetElementId}`);
             const timestampTarget = document.getElementById(`ts-${targetElementId}`);
             const chatDisplay = targetElement.closest('[id^="chat-display-"]');
             const streamUrl = `/chat/${instanceId}/stream`;
+            
             console.log("Attempting SSE connection to:", streamUrl);
             const evtSource = new EventSource(streamUrl);
             window.sseSources[instanceId] = evtSource;
+            
+            let currentMessageContent = ""; // Buffer for full message
+
             evtSource.onmessage = function(event) {
                 if (window.sseConnectionTokens[instanceId] !== token) {
                     console.log(`Stale SSE message ignored for ${instanceId}`);
@@ -122,21 +155,42 @@
                 }
                 try {
                     const data = JSON.parse(event.data);
+                    
                     if (data.type === 'chunk') {
-                        const span = document.createElement('span');
-                        span.innerHTML = marked.parseInline(data.content);
-                        span.classList.add('stream-chunk');
-                        proseTarget.appendChild(span);
-                        if (chatDisplay) chatDisplay.scrollTop = chatDisplay.scrollHeight;
+                        // Smart Scroll Logic: Check if user is at bottom BEFORE updating
+                        let shouldScroll = false;
+                        if (chatDisplay) {
+                            const threshold = 50; // pixels from bottom
+                            const position = chatDisplay.scrollTop + chatDisplay.clientHeight;
+                            const height = chatDisplay.scrollHeight;
+                            shouldScroll = (height - position) < threshold;
+                        }
+
+                        // Accumulate and Render
+                        currentMessageContent += data.content;
+                        // Use marked.parse to render the full accumulated Markdown
+                        // This handles code blocks split across chunks correctly
+                        proseTarget.innerHTML = marked.parse(currentMessageContent);
+                        
                         if (timestampTarget) timestampTarget.textContent = 'Streaming...';
+                        
+                        // Apply Scroll if needed
+                        if (shouldScroll && chatDisplay) {
+                            chatDisplay.scrollTop = chatDisplay.scrollHeight;
+                        }
+
                     } else if (data.type === 'finish' || data.type === 'stopped') {
                         evtSource.close();
                         delete window.sseSources[instanceId];
+                        
+                        // Final consistency check (optional, but good for "last_message" template sync)
                         htmx.ajax('GET', `/chat/${instanceId}/last_message`, { target: `#${targetElementId}`, swap: 'outerHTML' })
                             .then(() => {
                                 fetch(`/chat/${instanceId}/save`, { method: 'POST' });
                                 enableChatInput(instanceId);
+                                if (typeof addCopyButtons === 'function') addCopyButtons(); // Ensure buttons appear
                             });
+                            
                     } else if (data.type === 'error') {
                         evtSource.close();
                         delete window.sseSources[instanceId];

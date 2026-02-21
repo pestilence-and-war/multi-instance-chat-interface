@@ -50,12 +50,34 @@ function addCopyButtons() {
         button.className = 'copy-btn'; 
 
         button.addEventListener('click', () => {
+            // Check for clipboard support
+            if (!navigator.clipboard) {
+                button.textContent = 'N/A';
+                return;
+            }
+
+            // Clear any existing timeout to prevent the "Copied!" message 
+            // from disappearing early if clicked rapidly.
+            if (button.dataset.timerId) {
+                clearTimeout(parseInt(button.dataset.timerId));
+                button.dataset.timerId = '';
+            }
+
             navigator.clipboard.writeText(codeBlock.innerText).then(() => {
                 button.textContent = 'Copied!';
-                setTimeout(() => button.textContent = 'Copy', 1500);
-            }).catch(() => {
+                const timerId = setTimeout(() => {
+                    button.textContent = 'Copy';
+                    button.dataset.timerId = '';
+                }, 1500);
+                button.dataset.timerId = timerId.toString();
+            }).catch((err) => {
+                console.error('Copy failed:', err);
                 button.textContent = 'Error';
-                setTimeout(() => button.textContent = 'Copy', 1500);
+                const timerId = setTimeout(() => {
+                    button.textContent = 'Copy';
+                    button.dataset.timerId = '';
+                }, 1500);
+                button.dataset.timerId = timerId.toString();
             });
         });
         container.appendChild(button);

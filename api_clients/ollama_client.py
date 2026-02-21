@@ -104,8 +104,13 @@ class OllamaClient(BaseApiClient):
         """
         if not description:
             logger.warning(f"Tool '{name}' provided to OllamaClient has no description.")
-        if not parameters or not parameters.get("properties"):
-            logger.warning(f"Tool '{name}' provided to OllamaClient has no parameters or properties defined. Schema: {parameters}")
+        
+        # Only warn if parameters are completely missing or malformed, 
+        # but ALLOW valid empty-properties schema for 0-argument tools.
+        if parameters is None:
+             logger.warning(f"Tool '{name}' provided to OllamaClient has None parameters.")
+        elif not isinstance(parameters, dict):
+             logger.warning(f"Tool '{name}' provided to OllamaClient has invalid parameters type: {type(parameters)}")
 
         return {
             "type": "function",

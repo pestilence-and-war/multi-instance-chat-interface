@@ -1,162 +1,190 @@
-# my_tools/jailed_file_manager.py (Corrected)
+# my_tools/jailed_file_manager.py (Python-Native & Cross-Platform)
 
-import subprocess
 import json
 import os
-from my_tools.path_security import _get_project_root
+import shutil
+from my_tools.path_security import _get_project_root, _is_path_safe
 from my_tools.code_editor import _sync_db_after_file_creation, _sync_db_after_file_delete, _sync_db_after_file_move
 from my_tools.codebase_manager import _CodebaseManager
 
-def _execute_command(command_str: str) -> str:
-    """(Internal Engine) Calls the SafeExecutor.ps1 script."""
+# --- Helper: Safe Path Resolution ---
+
+def _resolve_and_validate_path(relative_path: str) -> str | None:
+    """
+    Resolves a relative path against the project root and verifies safety.
+    Returns the absolute path if safe, or None if unsafe/invalid.
+    """
     project_root = _get_project_root()
     if not project_root:
-        return json.dumps({'status': 'error', 'message': 'CODEBASE_DB_PATH environment variable not set or invalid.'}, indent=2)
-
-    try:
-        executor_script_path = os.path.join(os.path.dirname(__file__), "SafeExecutor.ps1")
-        
-        final_command = [
-            "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-            "-File", executor_script_path,
-            "-WorkspacePath", project_root,
-            "-CommandToRun", command_str
-        ]
-
-        process = subprocess.run(
-            final_command, capture_output=True, text=True, encoding='utf-8', timeout=30
-        )
-        return json.dumps({
-            'status': 'success' if not process.stderr.strip() else 'error',
-            'stdout': process.stdout.strip(),
-            'stderr': process.stderr.strip()
-        }, indent=2)
-
-    except Exception as e:
-        return json.dumps({'status': 'error', 'message': f'An unexpected error occurred: {e}'}, indent=2)
+        return None
+    
+    full_path = os.path.abspath(os.path.join(project_root, relative_path))
+    
+    if _is_path_safe(full_path):
+        return full_path
+    return None
 
 # --- Public Tool Functions ---
 
 def jailed_create_directory(path: str) -> str:
     """(Low-Cost) Safely creates a new directory within the sandboxed project workspace.
-    This tool executes a PowerShell command (`New-Item`) within a secure, isolated
-    environment to prevent access outside the defined project directory.
+    Uses Python's native os module to ensure cross-platform compatibility.
 
-    @param path (string): The project-relative path for the new directory to be created. REQUIRED.
-
-    Returns:
-        string: A JSON string containing the status of the operation ('success' or 'error'), along with any output from stdout and stderr.
+    @param path (string): The project-relative path for the new directory. REQUIRED.
     """
-    command = f"New-Item -ItemType Directory -Path '{path}'"
-    result_str = _execute_command(command)
-    result = json.loads(result_str)
+    full_path = _resolve_and_validate_path(path)
+    if not full_path:
+        return json.dumps({'status': 'error', 'message': f'Security Error: Path "{path}" is outside the workspace.'}, indent=2)
 
-    if result.get("status") == "success":
+    try:
+        os.makedirs(full_path, exist_ok=True)
+        
+        # Sync DB
         manager = _CodebaseManager()
-        cursor = manager._execute_write_query("INSERT OR IGNORE INTO directories (path) VALUES (?)", (path + '/',))
-        if cursor:
-             result['database_sync_status'] = {'status': 'success', 'message': f'Directory {path}/ registered in database.'}
-        else:
-             result['database_sync_status'] = {'status': 'error', 'message': 'Failed to register directory in database.'}
-        return json.dumps(result, indent=2)
-    return result_str
+        # Ensure path ends with slash for consistency with DB convention
+        db_path_str = path.replace('\\', '/').strip('/') + '/' 
+        cursor = manager._execute_write_query("INSERT OR IGNORE INTO directories (path) VALUES (?)", (db_path_str,))
+        
+        db_msg = 'Directory registered in database.' if cursor else 'Failed to register directory in database.'
+        
+        return json.dumps({
+            'status': 'success', 
+            'message': f'Directory created: {path}',
+            'database_sync_status': {'status': 'success' if cursor else 'error', 'message': db_msg}
+        }, indent=2)
+
+    except Exception as e:
+        return json.dumps({'status': 'error', 'message': f'Error creating directory: {e}'}, indent=2)
 
 def jailed_delete_directory(path: str) -> str:
     """
-    (High-Risk) Safely deletes a directory and all its contents, and updates the database.
-    This tool executes a PowerShell command (`Remove-Item`) within a secure, isolated
-    environment to prevent access outside the defined project directory.
-
+    (High-Risk) Safely deletes a directory and all its contents.
+    
     @param path (string): The project-relative path of the directory to delete. REQUIRED.
-
-    Returns:
-        string: A JSON string containing the status of the operation ('success' or 'error'), along with any output from stdout and stderr.
     """
-    command = f"Remove-Item -Path '{path}' -Recurse -Force"
-    result_str = _execute_command(command)
-    result = json.loads(result_str)
+    full_path = _resolve_and_validate_path(path)
+    if not full_path:
+        return json.dumps({'status': 'error', 'message': f'Security Error: Path "{path}" is outside the workspace.'}, indent=2)
 
-    if result.get("status") == "success":
+    if not os.path.exists(full_path):
+        return json.dumps({'status': 'error', 'message': f'Directory not found: {path}'}, indent=2)
+    if not os.path.isdir(full_path):
+        return json.dumps({'status': 'error', 'message': f'Path is not a directory: {path}'}, indent=2)
+
+    try:
+        shutil.rmtree(full_path)
+
+        # Sync DB
         manager = _CodebaseManager()
-        dir_cursor = manager._execute_write_query("DELETE FROM directories WHERE path = ?", (path + '/',))
-        files_cursor = manager._execute_write_query("DELETE FROM files WHERE path LIKE ?", (path + '/%',))
+        db_path_str = path.replace('\\', '/').strip('/') + '/'
         
-        if dir_cursor and files_cursor:
-             result['database_sync_status'] = {'status': 'success', 'message': f'Directory {path}/ and its contents removed from database.'}
-        else:
-             result['database_sync_status'] = {'status': 'error', 'message': 'Failed to update database after directory deletion.'}
-        return json.dumps(result, indent=2)
-            
-    return result_str
+        dir_cursor = manager._execute_write_query("DELETE FROM directories WHERE path = ?", (db_path_str,))
+        files_cursor = manager._execute_write_query("DELETE FROM files WHERE path LIKE ?", (db_path_str + '%',))
+        
+        db_status = 'success' if (dir_cursor and files_cursor) else 'error'
+        db_msg = 'Database updated.' if db_status == 'success' else 'Database update failed.'
+
+        return json.dumps({
+            'status': 'success', 
+            'message': f'Directory deleted: {path}',
+            'database_sync_status': {'status': db_status, 'message': db_msg}
+        }, indent=2)
+
+    except Exception as e:
+        return json.dumps({'status': 'error', 'message': f'Error deleting directory: {e}'}, indent=2)
 
 def jailed_create_file(path: str, content: str = "") -> str:
-    """(Medium-Cost) Safely creates or overwrites a file with content and syncs the database.
-    Executes a sandboxed PowerShell command (`Set-Content`) to write to a file.
-    If the file operation is successful, it automatically updates the project database
-    to reflect the new or updated file.
-
-    @param path (string): The project-relative path of the file to create or overwrite. REQUIRED.
-    @param content (string): The content to write into the file. Optional. Defaults to an empty string.
-
-    Returns:
-        string: A JSON string containing the command execution status, stdout/stderr, and a 'database_sync_status' object.
+    """(Medium-Cost) Safely creates or overwrites a file with content.
+    
+    @param path (string): The project-relative path of the file. REQUIRED.
+    @param content (string): The content to write. Optional.
     """
-    escaped_content = content.replace("'", "''")
-    command = f"Set-Content -Path '{path}' -Value '{escaped_content}'"
-    result_str = _execute_command(command)
-    result = json.loads(result_str)
+    full_path = _resolve_and_validate_path(path)
+    if not full_path:
+        return json.dumps({'status': 'error', 'message': f'Security Error: Path "{path}" is outside the workspace.'}, indent=2)
 
-    if result.get("status") == "success":
+    try:
+        # Ensure parent directory exists
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        
+        with open(full_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        # Sync DB
         db_sync_result = json.loads(_sync_db_after_file_creation(path))
-        result['database_sync_status'] = db_sync_result
-        return json.dumps(result, indent=2)
-            
-    return result_str
+        
+        return json.dumps({
+            'status': 'success',
+            'message': f'File written: {path}',
+            'database_sync_status': db_sync_result
+        }, indent=2)
+
+    except Exception as e:
+        return json.dumps({'status': 'error', 'message': f'Error writing file: {e}'}, indent=2)
 
 def jailed_delete_file(path: str) -> str:
-    """(Low-Cost) Safely deletes a file and removes its record from the database.
-    Executes a sandboxed PowerShell command (`Remove-Item`) to delete the specified file.
-    On successful file deletion, it removes the corresponding entry from the project database.
-
-    @param path (string): The project-relative path of the file to delete. REQUIRED.
-
-    Returns:
-        string: A JSON string containing the command execution status, stdout/stderr, and a 'database_sync_status' object.
-    """
+    """(Low-Cost) Safely deletes a file.
     
-    command = f"Remove-Item -Path '{path}' -Force"
-    result_str = _execute_command(command)
-    result = json.loads(result_str)
+    @param path (string): The project-relative path of the file. REQUIRED.
+    """
+    full_path = _resolve_and_validate_path(path)
+    if not full_path:
+        return json.dumps({'status': 'error', 'message': f'Security Error: Path "{path}" is outside the workspace.'}, indent=2)
 
-    if result.get("status") == "success":
+    if not os.path.exists(full_path):
+        return json.dumps({'status': 'error', 'message': f'File not found: {path}'}, indent=2)
+    if not os.path.isfile(full_path):
+        return json.dumps({'status': 'error', 'message': f'Path is not a file: {path}'}, indent=2)
+
+    try:
+        os.remove(full_path)
+
+        # Sync DB
         db_sync_result = json.loads(_sync_db_after_file_delete(path))
-        result['database_sync_status'] = db_sync_result
-        return json.dumps(result, indent=2)
+        
+        return json.dumps({
+            'status': 'success',
+            'message': f'File deleted: {path}',
+            'database_sync_status': db_sync_result
+        }, indent=2)
 
-    return result_str
+    except Exception as e:
+        return json.dumps({'status': 'error', 'message': f'Error deleting file: {e}'}, indent=2)
 
 def jailed_move_file(source_path: str, destination_path: str) -> str:
-    """(Low-Cost) Safely moves or renames a file and updates the database.
-    Executes a sandboxed PowerShell command (`Move-Item`) to move a file from a source path
-    to a destination path. On success, it updates the file's record in the project database
-    to reflect the new path.
-
-    @param source_path (string): The current project-relative path of the file to move. REQUIRED.
-    @param destination_path (string): The new project-relative path for the file. REQUIRED.
-
-    Returns:
-        string: A JSON string containing the command execution status, stdout/stderr, and a 'database_sync_status' object.
+    """(Low-Cost) Safely moves or renames a file.
+    
+    @param source_path (string): Current project-relative path. REQUIRED.
+    @param destination_path (string): New project-relative path. REQUIRED.
     """
-    command = f"Move-Item -Path '{source_path}' -Destination '{destination_path}' -Force"
-    result_str = _execute_command(command)
-    result = json.loads(result_str)
+    full_src = _resolve_and_validate_path(source_path)
+    full_dest = _resolve_and_validate_path(destination_path)
 
-    if result.get("status") == "success":
+    if not full_src:
+        return json.dumps({'status': 'error', 'message': f'Security Error: Source path "{source_path}" is outside workspace.'}, indent=2)
+    if not full_dest:
+        return json.dumps({'status': 'error', 'message': f'Security Error: Destination path "{destination_path}" is outside workspace.'}, indent=2)
+
+    if not os.path.exists(full_src):
+        return json.dumps({'status': 'error', 'message': f'Source file not found: {source_path}'}, indent=2)
+
+    try:
+        # Ensure dest directory exists
+        os.makedirs(os.path.dirname(full_dest), exist_ok=True)
+        
+        shutil.move(full_src, full_dest)
+
+        # Sync DB
         db_sync_result = json.loads(_sync_db_after_file_move(source_path, destination_path))
-        result['database_sync_status'] = db_sync_result
-        return json.dumps(result, indent=2)
+        
+        return json.dumps({
+            'status': 'success',
+            'message': f'Moved {source_path} to {destination_path}',
+            'database_sync_status': db_sync_result
+        }, indent=2)
 
-    return result_str
+    except Exception as e:
+        return json.dumps({'status': 'error', 'message': f'Error moving file: {e}'}, indent=2)
 
 def setup_digital_office_structure() -> str:
     """
@@ -191,14 +219,13 @@ def setup_digital_office_structure() -> str:
         result_str = jailed_create_directory(directory)
         try:
             result = json.loads(result_str)
-            # Don't mark as failure if the directory already exists
-            is_preexisting = "already exists" in result.get("stderr", "")
-            if result.get("status") == "error" and not is_preexisting:
-                overall_status = "partial_failure"
+            # Python's os.makedirs(exist_ok=True) won't throw an error for existing dirs,
+            # so we check our own return message or just assume success.
+            # Our new jailed_create_directory returns success even if it exists (idempotent logic implied by exist_ok=True).
             
             results.append({
                 "directory": directory,
-                "status": "skipped_preexisting" if is_preexisting else result.get("status"),
+                "status": result.get("status"),
                 "details": result
             })
 
