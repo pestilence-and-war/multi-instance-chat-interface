@@ -10,24 +10,33 @@ from my_tools.jailed_file_manager import jailed_delete_file
 
 # --- Internal Helper Functions ---
 
+def _get_app_root_personas_dir() -> str:
+    """
+    (Internal) Resolves the 'personas' directory relative to this script.
+    This ensures we look in the Application's 'personas' folder, 
+    not the Target Project's folder.
+    """
+    # This script is in APP_ROOT/my_tools/persona_manager.py
+    # We want APP_ROOT/personas
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    app_root = os.path.dirname(current_dir) # Go up one level to APP_ROOT
+    return os.path.join(app_root, 'personas')
+
 def _get_persona_path(persona_name: str) -> Dict[str, Any]:
     """
     (Internal Engine) Safely constructs and validates the file path for a given persona.
     """
-    project_root = _get_project_root()
-    if not project_root:
-        return {"status": "error", "message": "Security Error: Project root not configured."}
-
     # Sanitize persona_name to prevent path traversal attacks (e.g., "../" in the name)
     sanitized_name = os.path.basename(f"{persona_name}.json")
     if not persona_name or sanitized_name != f"{persona_name}.json":
         return {"status": "error", "message": f"Invalid persona name provided: '{persona_name}'."}
 
-    personas_dir = os.path.join(project_root, 'personas')
+    personas_dir = _get_app_root_personas_dir()
     full_path = os.path.abspath(os.path.join(personas_dir, sanitized_name))
 
-    if not _is_path_safe(full_path):
-        return {"status": "error", "message": "Security Error: Path is outside the allowed project directory."}
+    # Security check: Ensure the path is actually inside the personas dir
+    if not full_path.startswith(os.path.abspath(personas_dir)):
+        return {"status": "error", "message": "Security Error: Path is outside the allowed personas directory."}
     
     return {"status": "success", "path": full_path, "relative_path": os.path.join('personas', sanitized_name)}
 
@@ -40,13 +49,14 @@ def list_personas() -> str:
     Returns:
         str: A JSON string containing a list of persona names.
     """
-    project_root = _get_project_root()
-    if not project_root:
-        return json.dumps({"status": "error", "message": "Project root not configured."})
-        
-    personas_dir = os.path.join(project_root, 'personas')
+    personas_dir = _get_app_root_personas_dir()
+    
     if not os.path.isdir(personas_dir):
-        return json.dumps({"status": "success", "personas": []}, indent=2)
+        # Create it if it doesn't exist (internal app dir)
+        try:
+            os.makedirs(personas_dir, exist_ok=True)
+        except:
+            return json.dumps({"status": "success", "personas": []}, indent=2)
     
     try:
         persona_files = [f.replace('.json', '') for f in os.listdir(personas_dir) if f.endswith('.json')]
@@ -61,7 +71,7 @@ def get_persona_details(persona_name: str) -> str:
     @param persona_name (string): The name of the persona to read (e.g., "Project Manager"). Required.
     @return (string): A JSON string of the persona's configuration, or an error JSON if not found.
     """
-    PERSONAS_DIR = os.path.join(_get_project_root(), 'personas')
+    PERSONAS_DIR = _get_app_root_personas_dir()
     try:
         # Sanitize name to create a safe filename
         safe_filename = persona_name.replace(" ", "_") + ".json"
@@ -98,8 +108,7 @@ def create_persona(persona_name: str, persona_data: str) -> str:
         return json.dumps(path_result, indent=2)
     
     full_path = path_result["path"]
-    relative_path = path_result["relative_path"]
-
+    
     if os.path.exists(full_path):
         return json.dumps({'status': 'error', 'message': f'Persona "{persona_name}" already exists.'})
 
@@ -113,16 +122,9 @@ def create_persona(persona_name: str, persona_data: str) -> str:
     except Exception as e:
         return json.dumps({'status': 'error', 'message': f'An unexpected error occurred during file write: {e}'})
 
-    # Sync with the project database
-    refresh_status_json = _sync_db_after_file_creation(relative_path)
-    status_data = json.loads(refresh_status_json)
+    # Note: We no longer sync to project DB because personas are internal to the App, not the Target Project.
+    return json.dumps({'status': 'success', 'message': f"Successfully created persona '{persona_name}'."})
 
-    if status_data['status'] == 'success':
-        return json.dumps({'status': 'success', 'message': f"Successfully created persona '{persona_name}' and updated the project database."})
-    else:
-        return json.dumps({'status': 'warning', 'message': f"Successfully created persona file, but failed to update the project database. Reason: {status_data.get('message', 'Unknown')}"})
-
-    return jailed_delete_file(path=relative_path)
 
 def instantiate_persona(persona_name: str, chat_manager_instance) -> tuple:
     """

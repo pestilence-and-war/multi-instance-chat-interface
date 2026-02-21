@@ -3,6 +3,8 @@ import json
 import queue
 import time
 import os
+import sys
+import subprocess
 import datetime
 from chat_manager import chat_manager, API_CLIENT_CLASSES, DEFAULT_PROVIDER
 from chat_instance import ChatInstance
@@ -21,6 +23,30 @@ dotenv.load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))
 
+# --- Project Root Configuration ---
+CONFIG_FILE = "project_config.json"
+
+def load_project_root():
+    """Loads the target project root from config file if available."""
+    # Resolve config file path relative to this script
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(app_dir, CONFIG_FILE)
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                root = config.get('project_root')
+                if root and os.path.isdir(root):
+                    print(f"Setting target project root to: {root}")
+                    # Only set the environment variable for tools to use
+                    os.environ["CODEBASE_DB_PATH"] = root
+        except Exception as e:
+            print(f"Error loading project config: {e}")
+
+# Load project root before initializing chat_manager
+load_project_root()
+
 # --- Jinja Filters & Context ---
 @app.template_filter('markdown')
 def markdown_filter(s):
@@ -32,15 +58,76 @@ def format_time_filter(s):
 
 @app.context_processor
 def inject_global_context():
+    # Use the env var as the source of truth for the UI
+    current_root = os.environ.get("CODEBASE_DB_PATH", os.getcwd())
     return dict(
         utils=utils,
         API_CLIENT_CLASSES=API_CLIENT_CLASSES,
         DEFAULT_PROVIDER=DEFAULT_PROVIDER,
         providers=list(API_CLIENT_CLASSES.keys()),
-        available_personas=json.loads(persona_manager.list_personas()).get('personas', [])
+        available_personas=json.loads(persona_manager.list_personas()).get('personas', []),
+        current_project_root=current_root
     )
 
 # === Main Routes ===
+
+@app.route('/config/project-root', methods=['POST'])
+def set_project_root():
+    new_root = request.form.get('project_root')
+    if not new_root:
+        return "<span class='text-red-500'>Error: No path provided.</span>", 400
+    
+    # Resolve to absolute path immediately
+    new_root = os.path.abspath(new_root)
+
+    if not os.path.isdir(new_root):
+        return f"<span class='text-red-500'>Error: Directory '{new_root}' does not exist.</span>", 400
+    
+    try:
+        # Update environment variable for tools
+        os.environ["CODEBASE_DB_PATH"] = new_root
+        
+        # Persist to config
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(app_dir, CONFIG_FILE)
+        
+        with open(config_path, 'w') as f:
+            json.dump({'project_root': new_root}, f)
+            
+        # We do NOT reload chat_manager anymore. 
+        # The application state (chats) remains constant.
+        # Only the tools' target directory changes.
+        
+        return f"<span class='text-green-500'>Success! Target set to {new_root}.</span>"
+    except Exception as e:
+        return f"<span class='text-red-500'>Error: {e}</span>", 500
+
+@app.route('/project/build-db', methods=['POST'])
+def build_project_db():
+    target_root = os.environ.get("CODEBASE_DB_PATH", os.getcwd())
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(app_dir, 'build_code_db.py')
+    
+    print(f"Building DB for {target_root} using {script_path}...")
+    
+    try:
+        # Run the build script
+        # We set cwd to app_dir to ensure any local imports in the script works (if any)
+        # But we pass target_root as the argument.
+        result = subprocess.run(
+            [sys.executable, script_path, target_root], 
+            cwd=app_dir,
+            capture_output=True, 
+            text=True, 
+            check=True
+        )
+        print("DB Build Output:", result.stdout)
+        return f"<span class='text-green-500'>Database built successfully! ({len(result.stdout)} chars output)</span>"
+    except subprocess.CalledProcessError as e:
+        print("DB Build Error:", e.stderr)
+        return f"<span class='text-red-500'>Build Failed: {e.stderr[:200]}...</span>", 500
+    except Exception as e:
+        return f"<span class='text-red-500'>Error: {e}</span>", 500
 
 @app.route('/')
 def index():
@@ -337,48 +424,53 @@ def get_tools_form(instance_id):
     if not instance: return "Not Found", 404
     return render_template('partials/tools_manager.html', instance=instance)
 
+# Update these routes in app.py
+
 @app.route('/chat/<instance_id>/tools/discover', methods=['GET'])
 def discover_tools_route(instance_id):
     instance = chat_manager.get_instance(instance_id)
     if not instance: return "Not Found", 404
-    available_modules = instance.discover_tool_modules(directory="my_tools")
-    return render_template('partials/_tool_discovery_step1.html', instance=instance, modules=available_modules)
+    # Use generic listdir or tool_manager logic
+    modules = instance.tool_manager.tool_module_map.values()
+    # De-duplicate
+    modules = list(set(modules))
+    return render_template('partials/_tool_discovery_step1.html', instance=instance, modules=modules)
 
 @app.route('/chat/<instance_id>/tools/scan-module', methods=['GET'])
 def scan_module_route(instance_id):
     instance = chat_manager.get_instance(instance_id)
     if not instance: return "Not Found", 404
     module_path = request.args.get('module_path')
-    if not module_path: return "Module path is required.", 400
-    unregistered_tools = instance.get_unregistered_tools_in_module(module_path)
+    # Use ToolManager
+    unregistered_tools = instance.tool_manager.scan_module_for_tools(module_path)
     return render_template('partials/_tool_discovery_step2.html', instance=instance, module_path=module_path, tools=unregistered_tools)
 
 @app.route('/chat/<instance_id>/tools/register-batch', methods=['POST'])
 def register_batch_route(instance_id):
     instance = chat_manager.get_instance(instance_id)
     if not instance: return "Not Found", 404
-    if instance.is_generating: return Response(status=409, response="Cannot change tools while generating.")
     module_path = request.form.get('module_path')
     function_names = request.form.getlist('function_names')
-    if not module_path or not function_names:
-        return render_template('partials/tools_manager.html', instance=instance, status_message="Error: Module and at least one function must be selected.", is_error=True)
+    
     success_count = 0
-    fail_count = 0
-    failed_tools = []
     for func_name in function_names:
-        success = instance.register_tool_from_config(name=func_name, module_path=module_path, function_name=func_name)
-        if success:
+        # Calls ChatInstance.register_tool which handles the Sync
+        if instance.register_tool(func_name, module_path, func_name):
             success_count += 1
-        else:
-            fail_count += 1
-            failed_tools.append(func_name)
+            
     chat_manager.save_instance_state(instance_id)
-    status_message = f"Registered {success_count} tool(s)."
-    is_error = False
-    if fail_count > 0:
-        status_message += f" Failed to register {fail_count}: {', '.join(failed_tools)}."
-        is_error = True
-    return render_template('partials/tools_manager.html', instance=instance, status_message=status_message, is_error=is_error)
+    return render_template('partials/tools_manager.html', instance=instance, status_message=f"Registered {success_count} tools.")
+
+@app.route('/chat/<instance_id>/tools/<tool_name>', methods=['DELETE'])
+def unregister_tool_route(instance_id, tool_name):
+    instance = chat_manager.get_instance(instance_id)
+    if not instance: return "Not Found", 404
+    
+    # Calls ChatInstance.unregister_tool which handles the Sync
+    instance.unregister_tool(tool_name)
+    
+    chat_manager.save_instance_state(instance_id)
+    return render_template('partials/tools_manager.html', instance=instance, status_message=f"Tool {tool_name} removed.")
 
 @app.route('/chat/<instance_id>/tools/register-manual', methods=['POST'])
 def register_tool_route_manual(instance_id):
@@ -414,35 +506,6 @@ def register_tool_route_manual(instance_id):
                 instance.connection_error = None
                 is_error = True
     return render_template('partials/tools_manager.html', instance=instance, status_message=status_message, is_error=is_error)
-
-@app.route('/chat/<instance_id>/tools/<tool_name>', methods=['DELETE'])
-def unregister_tool_route(instance_id, tool_name):
-    instance = chat_manager.get_instance(instance_id)
-    if not instance: return Response("Instance Not Found", status=404)
-    if instance.is_generating: return Response(status=409, response="Cannot change tools while generating.")
-    tool_name = tool_name.strip()
-    if tool_name in instance.tools_definitions:
-        try:
-            del instance.tools_definitions[tool_name]
-            if instance.api_client and tool_name in instance.api_client.registered_tools:
-                del instance.api_client.registered_tools[tool_name]
-                new_tool_schemas = []
-                for s in instance.api_client.tool_schemas:
-                    schema_name = None
-                    if hasattr(s, 'name'):
-                        schema_name = s.name
-                    elif isinstance(s, dict):
-                        schema_name = s.get('name')
-                    if schema_name != tool_name:
-                        new_tool_schemas.append(s)
-                instance.api_client.tool_schemas = new_tool_schemas
-            chat_manager.save_instance_state(instance_id)
-            return render_template('partials/tools_manager.html', instance=instance, status_message=f"Tool '{tool_name}' unregistered.", is_error=False)
-        except Exception as e:
-             instance = chat_manager.get_instance(instance_id)
-             return render_template('partials/tools_manager.html', instance=instance, status_message=f"Error unregistering {tool_name}: {e}", is_error=True), 500
-    else:
-         return render_template('partials/tools_manager.html', instance=instance, status_message=f"Tool '{tool_name}' not found.", is_error=True), 404
 
 @app.route('/chat_sessions/<path:filename>')
 def serve_uploaded_file(filename):

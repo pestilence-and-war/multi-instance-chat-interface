@@ -74,13 +74,13 @@ class _CallGraphHelper:
 
 def get_function_callers(file_path: str, function_name: str) -> str:
     """
-    (High-Cost) Finds all functions that call a specified function.
+    (Low-Cost) Identifies PARENT functions (Upstream) that call this function.
 
-    This helps understand the impact of changing a function, as it shows all its entry points.
-    The search for callers is performed globally across the entire codebase based on the function name.
-
-    @param file_path (string): The path to the Python file where the target function is defined. Used for context in the output. REQUIRED.
-    @param function_name (string): The name of the target function (the "callee"). REQUIRED.
+    Use this to answer: "Who uses this?" or "Where is this triggered?"
+    It returns a list of files/functions that depend on the target.
+    
+    @param file_path (string): The file containing the function.
+    @param function_name (string): The name of the function.
     """
     if not file_path or not function_name:
         return json.dumps({"error": "Missing 'file_path' or 'function_name' parameter.", "status": "error_missing_param"}, indent=2)
@@ -92,13 +92,14 @@ def get_function_callers(file_path: str, function_name: str) -> str:
 
 def get_function_callees(file_path: str, function_name: str) -> str:
     """
-    (High-Cost) Finds all functions that are called by a specified function.
+    (Low-Cost) Identifies CHILD functions (Downstream) called BY this function.
 
-    This helps understand what a function does by showing its dependencies and sub-tasks.
-    The search for callees is specific to the function instance at the given file path.
+    Use this to answer: "What does this do?" or "What is the execution chain?"
+    It returns the list of helper functions, tools, or APIs that the target executes.
+    PREFER THIS over reading source code to understand logic flow.
 
-    @param file_path (string): The path to the Python file where the target function is defined. REQUIRED.
-    @param function_name (string): The name of the target function (the "caller"). REQUIRED.
+    @param file_path (string): The file containing the function.
+    @param function_name (string): The name of the function.
     """
     if not file_path or not function_name:
         return json.dumps({"error": "Missing 'file_path' or 'function_name' parameter.", "status": "error_missing_param"}, indent=2)

@@ -51,13 +51,8 @@ def find_similar_tools(query_text: str, n_results: int = 3) -> list:
     Finds tools in the ChromaDB collection that are semantically similar to a query
     and returns their full JSON Schema specifications.
 
-    Args:
-        query_text: The user's natural language query about the task to perform.
-        n_results: The number of top tools to return.
-
-    Returns:
-        A list of JSON Schema dictionaries, where each dictionary describes a
-        tool that the language model can use. Returns an empty list on error.
+    @param query_text (string): The user's natural language query about the task to perform.
+    @param n_results (integer): The number of top tools to return. Defaults to 3.
     """
     try:
         # 1. Setup ChromaDB client and get collection

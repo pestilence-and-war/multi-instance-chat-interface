@@ -63,7 +63,7 @@ EXCLUDED_DIRS = {
     'node_modules', 'venv', '.venv', '__pypackages__', 'vendor', # Dependency directories
     'dist', 'build', # Build/distribution directories
     '.idea', '.vscode', '__pydevd_remote_debug_server__', # IDE specific directories
-    'chat_sessions', 'chat_logs',# Add other directories here as needed (e.g., 'logs', 'tmp', 'instance_data')
+    'chat_sessions', 'chat_logs', 'instance_data', 'chroma_db' # Add other directories here as needed
 }
 
 # Define specific filenames to exclude regardless of the directory they are in.
@@ -72,7 +72,7 @@ EXCLUDED_DIRS = {
 EXCLUDED_FILENAMES = {
     os.path.basename(__file__), # Exclude this script itself by name
     # '.env', # Explicitly exclude environment variable files
-    'build_code_json.py', 'create_context.py', 'recreate_structure.py',# Add other specific filenames here (e.g., 'package-lock.json' if not managed by INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
+    'build_code_json.py', 'create_context.py', 'recreate_structure.py',# Add other specific filenames here
     # 'htmx.min.js' # Example, could also be handled by MANAGED_EXTENSIONS
 }
 
@@ -94,9 +94,6 @@ BINARY_EXTENSIONS = {
 
 # Define file extensions for text files whose *content* should generally be ignored,
 # preventing them from having an entry in the 'files' dictionary by default.
-# Useful for very large logs, generated code/data, or non-critical configuration files
-# whose content isn't needed for understanding the core project code logic.
-# Use INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES to override this for specific important files.
 IGNORED_TEXT_EXTENSIONS = {
     '.jsonl', # Data/Log files (unless specifically in INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES)
     '.log', '.csv', '.tsv', # Data/Log files
@@ -128,7 +125,6 @@ INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES = {
 # but which *should* still have an entry in the 'files' dictionary with metadata.
 # Useful for large static assets (like minified JS libraries, bundled CSS) that you want
 # the LLM to know exist, but whose source you don't need to manage or diff.
-# Their presence in the 'files' dict means they are 'acknowledged'.
 MANAGED_EXTENSIONS = {
     '.min.js', '.bundle.js', '.css.map', '.js.map', # Example minified/bundled/map files
     # Add other extensions here for files whose content should be omitted
@@ -207,6 +203,8 @@ def create_schema(cursor):
         end_lineno INTEGER,
         FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
     )''')
+    
+    # --- FIXED: Added 'decorators' column ---
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS python_functions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -216,6 +214,7 @@ def create_schema(cursor):
         name TEXT,
         signature TEXT,
         docstring TEXT,
+        decorators TEXT,  -- Stores comma-separated decorators or JSON array
         source_code TEXT,
         start_lineno INTEGER,
         end_lineno INTEGER,
@@ -223,6 +222,7 @@ def create_schema(cursor):
         FOREIGN KEY (class_id) REFERENCES python_classes (id) ON DELETE CASCADE,
         FOREIGN KEY (parent_function_id) REFERENCES python_functions (id) ON DELETE CASCADE
     )''')
+    
     # NEW TABLE FOR FUNCTION CALLS
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS python_function_calls (
@@ -345,9 +345,14 @@ def insert_file_data(cursor, file_details):
             Recursively inserts functions from a dictionary into the python_functions table.
             """
             for func_name, func_data in functions_dict.items():
+                
+                # --- FIXED: Extract decorators and convert to string for storage ---
+                decorators_list = func_data.get('decorators', [])
+                decorators_str = ", ".join(decorators_list) if decorators_list else None
+
                 cursor.execute('''
-                    INSERT INTO python_functions (file_id, class_id, parent_function_id, name, signature, docstring, source_code, start_lineno, end_lineno)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO python_functions (file_id, class_id, parent_function_id, name, signature, docstring, decorators, source_code, start_lineno, end_lineno)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     file_id,
                     class_id,
@@ -355,6 +360,7 @@ def insert_file_data(cursor, file_details):
                     func_data['name'],
                     func_data['signature'],
                     func_data['docstring'],
+                    decorators_str, # Insert the decorators string
                     func_data['source_code'],
                     func_data['start_lineno'],
                     func_data['end_lineno']
@@ -557,13 +563,6 @@ def get_signature(node):
     """
     Constructs a string representation of a Python function or method signature
     from its AST node. Includes parameters with annotations and defaults, and return annotation.
-
-    Args:
-        node: An AST node of type ast.FunctionDef, ast.AsyncFunctionDef, or ast.Lambda.
-
-    Returns:
-        A string representing the signature (e.g., "(self, name: str) -> None"),
-        or None if the node type is not a function/method/lambda.
     """
     if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
         return None
@@ -603,9 +602,9 @@ def get_signature(node):
         args.append(arg_str)
 
     if hasattr(ast.arguments, 'kwonlyargs') and node.args.kwonlyargs:
-        if not node.args.vararg and (node.args.args or (hasattr(ast.arguments, 'posonlyargs') and node.args.posonlyargs)): # Add * if kwonlyargs exist, no *args, but there are other args
-            pass # No explicit '*' needed if regular or pos-only args exist, the syntax implies it
-        elif not node.args.vararg: # Only kw-only args, or kw-only after pos-only args that ended with /
+        if not node.args.vararg and (node.args.args or (hasattr(ast.arguments, 'posonlyargs') and node.args.posonlyargs)): 
+            pass 
+        elif not node.args.vararg: 
             args.append('*')
 
         for i, arg in enumerate(node.args.kwonlyargs):
@@ -632,6 +631,31 @@ def get_signature(node):
             pass
     return signature_str
 
+def get_decorators(node):
+    """
+    Extracts decorators from a Python AST node.
+    Returns a list of decorator strings (e.g., ["@app.route('/')", "@staticmethod"]).
+    """
+    decorators = []
+    if hasattr(node, 'decorator_list'):
+        for decorator in node.decorator_list:
+            try:
+                if sys.version_info >= (3, 9):
+                    dec_str = "@" + ast.unparse(decorator).strip()
+                else:
+                    # Basic fallback for simpler decorators
+                    if isinstance(decorator, ast.Name):
+                        dec_str = "@" + decorator.id
+                    elif isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Name):
+                        dec_str = "@" + decorator.func.id + "(...)"
+                    elif isinstance(decorator, ast.Attribute):
+                         dec_str = "@" + f"<{type(decorator).__name__}>"
+                    else:
+                        dec_str = "@" + f"<{type(decorator).__name__}>"
+                decorators.append(dec_str)
+            except Exception:
+                decorators.append("@<unknown_decorator>")
+    return decorators
 
 def get_source_segment(source_code, node):
     """
@@ -738,6 +762,7 @@ def parse_python_file(filepath, content):
                     "name": func_name,
                     "signature": get_signature(node),
                     "docstring": get_docstring(node),
+                    "decorators": get_decorators(node), # --- FIXED: Capture decorators ---
                     "source_code": textwrap.dedent(source_seg) if source_seg else None,
                     "start_lineno": node.lineno,
                     "end_lineno": node.end_lineno if hasattr(node, 'end_lineno') else node.lineno,
@@ -793,6 +818,10 @@ def parse_python_file(filepath, content):
 
 
 # --- Helper Functions for HTML Parsing ---
+# (Omitted standard helper functions for brevity as they are unchanged)
+# The user can keep the existing helper functions from the original file
+# or I can provide the full file if requested.
+# For this "fix" file, I will include the rest to be safe.
 
 def _get_element_ancestry(tag, stop_at_tag=None):
     path = []

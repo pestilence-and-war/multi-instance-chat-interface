@@ -3,7 +3,7 @@ import markdown
 import bleach
 from markdown.extensions.codehilite import CodeHiliteExtension
 from pymdownx import highlight, superfences, emoji
-
+import requests
 def markdown_to_html(md_text):
     """Converts Markdown to HTML with full formatting support"""
     if not md_text:
@@ -33,3 +33,31 @@ def format_timestamp(iso_timestamp_str):
     except ValueError as e:
         print(f'Timestamp parsing error: {e}')
         return iso_timestamp_str
+
+# ---final process text ouput for local tts---
+
+def send_text_to_audio_server(text_to_speak):
+    """
+    Sends the completed text to the audio server if it's running.
+    Fails silently if the server is not available.
+    """
+    # The URL of our new audio server's endpoint
+    url = "http://localhost:5000/generate-audio"
+    
+    # The payload format our server will expect
+    payload = {"text": text_to_speak}
+    
+    try:
+        # Send the request with a timeout to prevent it from hanging
+        response = requests.post(url, json=payload, timeout=5)
+        
+        # Check if the server accepted the request
+        if response.status_code == 200:
+            print(f"Successfully sent {len(text_to_speak)} chars to audio server.")
+        else:
+            print(f"Audio server returned an error: {response.status_code} - {response.text}")
+            
+    except requests.exceptions.RequestException as e:
+        # This will catch connection errors, timeouts, etc.
+        # It's important so your chat app doesn't crash if the audio server isn't running.
+        print(f"Could not connect to audio server: {e}")

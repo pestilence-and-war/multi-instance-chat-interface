@@ -1,78 +1,124 @@
-# Project Sandbox Setup Guide
+# Setup Guide
 
-This guide explains how to set up the secure sandboxed environment required to use the advanced file system tools in this project. This setup creates a special, low-privilege user account and a "jailed" directory, allowing an LLM to safely create, modify, and delete files within a designated project workspace without any risk to your main system files.
+This guide covers the installation and configuration of the Multi-Instance AI Chat Interface. The application is designed to be cross-platform and runs on Windows, Linux, and macOS.
 
 ### Prerequisites
 
-*   Windows 10 or Windows 11.
-*   Administrator access on your machine to run the setup scripts.
-*   PowerShell 5.1 or later (this is standard on modern Windows).
+*   **Python 3.10** or higher.
+*   **Node.js** and **npm** (for building the frontend styles).
+*   **Git**.
 
 ---
 
-## Part 1: One-Time Environment Setup
+## Part 1: General Setup
 
-This part only needs to be performed once on your machine. It creates the permanent user and sandbox directory.
+These steps are required for all users.
 
-### Step 1: Run the Sandbox Setup Script
+### 1. Clone the Repository
 
-This script creates the dedicated user (`JeaToolUser`) and the sandboxed directory (`C:\SandboxedWorkspaces`) and applies the strict permissions that prevent the user from accessing anything outside that directory.
+```bash
+git clone <your-repo-url>
+cd <repo-directory>
+```
 
-1.  Navigate to the root directory of this project in a PowerShell terminal.
-2.  You must run this script as an Administrator. Right-click the PowerShell icon and select "Run as Administrator," then navigate to the project directory.
-3.  Run the setup script:
-    ```powershell
-    .\Setup-Simple-Sandbox.ps1
-    ```
-4.  You will be prompted to enter a new, strong password for the `JeaToolUser` account. Choose a secure password and **remember it**. This is the password you will use to launch the application.
+### 2. Create a Virtual Environment
 
-### Step 2: Grant Project Permissions
+It is highly recommended to run the application in an isolated environment.
 
-The sandboxed user (`JeaToolUser`) needs permission to read your application's files, specifically the Python interpreter inside your virtual environment (`venv`). This script grants the necessary "Read & Execute" permissions.
+**Linux/macOS:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
 
-1.  Ensure you are still in an **Administrator PowerShell** window in the project's root directory.
-2.  Run the permissions script:
-    ```powershell
-    .\Fix-Project-Permissions.ps1
-    ```
-3.  This will apply the permissions recursively to your project folder. The script will tell you when it's complete.
+**Windows:**
+```powershell
+python -m venv venv
+venv\Scripts\activate
+```
 
-The environment is now fully configured.
+### 3. Install Python Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Install Frontend Dependencies & Build CSS
+
+This project uses Tailwind CSS, which needs to be compiled.
+
+```bash
+npm install
+npm run build:css
+```
+*(Note: You can use `npm run watch` during development to auto-rebuild CSS on changes.)*
+
+### 5. Configure Environment Variables
+
+Create a file named `.env` in the root directory of the project. This file will hold your API keys and configuration.
+
+```ini
+# Security
+FLASK_SECRET_KEY='change_this_to_a_random_string'
+
+# AI Providers (Fill in the ones you want to use)
+GOOGLE_API_KEY='your_google_api_key'
+OPENROUTER_API_KEY='your_openrouter_key'
+OLLAMA_API_KEY='your_ollama_key' # Optional if running locally
+TAVILY_API_KEY='your_tavily_key'
+
+# Project Context Configuration
+# This is the path to the directory you want the AI to analyze and edit.
+# On Windows, use double backslashes (\\) or forward slashes (/).
+CODEBASE_DB_PATH='/absolute/path/to/your/project/workspace'
+```
 
 ---
 
 ## Part 2: Running the Application
 
-With the sandbox configured, you will now launch the application using a special launcher script. This is the new, permanent way to run the app.
+### For Production (Recommended)
+Use the included Waitress server for a robust, multi-threaded experience.
 
-**You will no longer run `python app.py` or `python run_waitress.py` directly unless not using the tools that require sandboxing.**
+```bash
+python run_waitress.py
+```
+Access the app at: `http://127.0.0.1:8080`
 
-### How to Launch
+### For Development
+Use the Flask development server for debugging and auto-reloading.
 
-1.  In the project's root directory, find the file `run_app_as_jea_user.bat`.
-2.  **Double-click `run_app_as_jea_user.bat`**.
-3.  A terminal window will appear and Windows will securely prompt you to enter the password for the `JeaToolUser`.
-4.  Enter the password you created in Part 1, Step 1.
-5.  The Waitress server will start in a **separate, hidden background process**. The launcher window will close itself after a few seconds.
-
-Your application is now running. You can access it in your web browser at `http://127.0.0.1:5000/`.
-
-### How to Stop the Server
-
-Because the server is running as another user in the background, you cannot stop it with `Ctrl+C`. You must use the Windows Task Manager until I figure out a streamlined solution.
-
-1.  Open Task Manager (`Ctrl+Shift+Esc`).
-2.  Go to the **"Details"** tab.
-3.  Sort by "User name" and find the `python.exe` process that is running as `JeaToolUser`.
-4.  Select that process and click **"End task"**.
+```bash
+flask run --debug
+```
+Access the app at: `http://127.0.0.1:5000`
 
 ---
 
-## How It All Works: The Security Model
+## Part 3: Optional Legacy Windows Sandbox
 
-This setup provides a robust, multi-layer security model:
+> **Note:** The core file management tools (`create_file`, `delete_file`, etc.) have been updated to be OS-agnostic and secure by default. You **do not** need this sandbox setup for normal operation.
 
-1.  **The Launcher (`run_app_as_jea_user.bat`)**: This is the "Ignition Key." It uses the trusted `runas` command to start the entire Python application process as our low-privilege `JeaToolUser`.
-2.  **User Isolation (`JeaToolUser`)**: This is our "Untrusted Intern." This user account, by design, has no rights or permissions anywhere on your system *except* for the two places we explicitly granted them: your project folder (to run the app) and the sandbox (to do its work).
-3.  **Directory Jailing (`C:\SandboxedWorkspaces`)**: This is the "Designated Workbench." It is the only place where the `JeaToolUser` has permission to write, modify, or delete files. Any attempt to operate outside this directory (e.g., in `C:\Windows`) will be blocked by the operating system.
-4.  **Command Whitelisting (`SafeExecutor.ps1`)**: This is the "Rule Book." Even though the user is jailed, this script provides a final layer of protection by checking every command against a pre-approved list (`New-Item`, `Remove-Item`, etc.). This prevents the execution of more dangerous commands like `Stop-Process` or `Invoke-WebRequest`, even within the sandbox.
+This section is only relevant if you are on Windows and explicitly wish to use the legacy `jailed_shell_tool.py` which relies on PowerShell JEA (Just Enough Administration) to run arbitrary shell commands.
+
+### 1. Run the Sandbox Setup Script
+*Requires Administrator PowerShell.*
+
+```powershell
+.\Setup-Simple-Sandbox.ps1
+```
+Follow the prompts to create the `JeaToolUser` and password.
+
+### 2. Grant Permissions
+*Requires Administrator PowerShell.*
+
+```powershell
+.\Fix-Project-Permissions.ps1
+```
+
+### 3. Launching with JEA
+To run the application inside this sandbox, do not use the standard python command. Instead:
+
+1.  Double-click `run_app_as_jea_user.bat`.
+2.  Enter the `JeaToolUser` password when prompted.
+3.  The server will start in the background. Stop it via Windows Task Manager.

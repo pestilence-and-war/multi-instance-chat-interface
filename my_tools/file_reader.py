@@ -49,9 +49,10 @@ def get_file_content(file_path: str) -> str:
 
 def get_code_block(file_path: str, start_line: int, end_line: int) -> str:
     """
-    (Low-Cost) Extracts a specific multi-line block of code from a file.
-
-    This is the preferred tool for reading targeted sections of a file, such as functions or classes.
+    (Mid-Cost) Reads a specific block of text. 
+    
+    Use this ONLY after using structure tools (metadata, call graph) to locate the exact lines.
+    Do not use this for exploring; use it for verification.
 
     @param file_path (string): The path to the file.
     @param start_line (integer): The starting line number of the block to retrieve (inclusive).
@@ -62,8 +63,6 @@ def get_code_block(file_path: str, start_line: int, end_line: int) -> str:
     if not (isinstance(start_line, int) and isinstance(end_line, int) and 1 <= start_line <= end_line):
         return json.dumps({"file_path": file_path, "error": "Invalid 'start_line' or 'end_line'. Must be positive integers with start <= end.", "status": "error_invalid_input"}, indent=2)
 
-    # This operation still needs the full content to slice, but the key difference
-    # is the reduced output size and the explicit user intent for a smaller section.
     content_response_str = get_file_content(file_path)
     content_response = json.loads(content_response_str)
 
@@ -87,15 +86,16 @@ def get_line_content(file_path: str, line_number: int) -> str:
     @param file_path (string): The path to the file.
     @param line_number (integer): The specific line number to retrieve.
     """
-    # This can be optimized by using get_code_block to fetch just one line
     return get_code_block(file_path=file_path, start_line=line_number, end_line=line_number)
 
 def get_file_metadata(file_path: str) -> str:
     """
-    (Low-Cost) Provides a summary of a file's metadata from the project database.
-
-    This includes file type, line counts, and summaries of contained objects (like classes and functions).
-
+    (Low-Cost) Returns file stats and a PREVIEW of the code structure (Function/Class names).
+    
+    Use this tool SECOND, after identifying interesting files in the directory tree.
+    It tells you WHAT is in the file (e.g., specific function names, API routes, class definitions)
+    without the high token cost of reading the actual code. 
+    
     @param file_path (string): The path to the file.
     """
     if not file_path:
@@ -106,12 +106,13 @@ def get_file_metadata(file_path: str) -> str:
     if not file_id:
         return json.dumps({"file_path": file_path, "error": "File not found.", "status": "error_not_found"}, indent=2)
 
+    # 1. Base Metadata Query (Counts)
     query = """
         SELECT
             f.path, f.type, f.start_lineno, f.end_lineno, f.message, f.error,
             (SELECT COUNT(*) FROM python_imports WHERE file_id = f.id) as import_count,
             (SELECT COUNT(*) FROM python_classes WHERE file_id = f.id) as class_summary_count,
-            (SELECT COUNT(*) FROM python_functions WHERE file_id = f.id AND class_id IS NULL) as function_summary_count,
+            (SELECT COUNT(*) FROM python_functions WHERE file_id = f.id) as function_summary_count, -- Removed 'AND class_id IS NULL' to count all
             (SELECT COUNT(*) FROM html_elements WHERE file_id = f.id) as html_element_count,
             (SELECT COUNT(*) FROM css_rules WHERE file_id = f.id) as css_rule_count,
             (SELECT COUNT(*) FROM javascript_constructs WHERE file_id = f.id) as javascript_construct_count
@@ -128,7 +129,46 @@ def get_file_metadata(file_path: str) -> str:
     if not row:
         return json.dumps({"file_path": file_path, "error": "File not found after getting ID.", "status": "error_not_found"}, indent=2)
 
-    return json.dumps({"file_path": file_path, "metadata": dict(row), "status": "success"}, indent=2)
+    metadata = dict(row)
+
+    # 2. Semantic Preview (Names of Symbols)
+    if metadata.get("type") == "python":
+        try:
+            # --- FIXED: Fetch ALL functions and join with classes to get methods ---
+            # We select the function name, its decorators, and the parent class name (if any)
+            func_query = """
+                SELECT pf.name, pf.decorators, pc.name as class_name 
+                FROM python_functions pf
+                LEFT JOIN python_classes pc ON pf.class_id = pc.id
+                WHERE pf.file_id = ?
+            """
+            func_cursor = manager._execute_read_query(func_query, (file_id,))
+            
+            functions = []
+            if func_cursor:
+                for f in func_cursor.fetchall():
+                    # Format: "MyClass.my_method" or just "my_function"
+                    display_name = f"{f['class_name']}.{f['name']}" if f['class_name'] else f['name']
+                    
+                    # Append decorators if they exist (crucial for Flask routes)
+                    if f['decorators']:
+                        display_name += f" [{f['decorators']}]"
+                    
+                    functions.append(display_name)
+
+            # Fetch Classes
+            class_query = "SELECT name FROM python_classes WHERE file_id = ?"
+            class_cursor = manager._execute_read_query(class_query, (file_id,))
+            classes = class_cursor.fetchall() if class_cursor else []
+
+            metadata["structure_preview"] = {
+                "functions": functions, # Now contains methods like 'ChatInstance.register_tools_from_module'
+                "classes": [c["name"] for c in classes]
+            }
+        except Exception as e:
+            metadata["structure_preview_error"] = str(e)
+
+    return json.dumps({"file_path": file_path, "metadata": metadata, "status": "success"}, indent=2)
 
 if __name__ == '__main__':
     import os
@@ -144,18 +184,12 @@ if __name__ == '__main__':
         test_file = "my_tools/file_reader.py" 
 
         print("\n--- Test Call 1: get_file_content ---")
-        # To avoid printing the whole file, we'll just check the status
         content_result = json.loads(get_file_content(file_path=test_file))
         print(f"Status of get_file_content: {content_result.get('status')}")
         assert content_result.get('status') == 'success'
 
-        print("\n--- Test Call 2: get_file_metadata ---")
+        print("\n--- Test Call 2: get_file_metadata (Should include structure_preview) ---")
         print(get_file_metadata(file_path=test_file))
 
         print("\n--- Test Call 3: get_line_content (testing line 20) ---")
-        # Line numbers adjusted for the refactored file
         print(get_line_content(file_path=test_file, line_number=20))
-
-        print("\n--- Test Call 4: get_code_block (testing lines 19-25) ---")
-        # Line numbers adjusted for the refactored file to get the docstring of get_file_content
-        print(get_code_block(file_path=test_file, start_line=19, end_line=25))

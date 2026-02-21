@@ -104,8 +104,13 @@ class OllamaClient(BaseApiClient):
         """
         if not description:
             logger.warning(f"Tool '{name}' provided to OllamaClient has no description.")
-        if not parameters or not parameters.get("properties"):
-            logger.warning(f"Tool '{name}' provided to OllamaClient has no parameters or properties defined. Schema: {parameters}")
+        
+        # Only warn if parameters are completely missing or malformed, 
+        # but ALLOW valid empty-properties schema for 0-argument tools.
+        if parameters is None:
+             logger.warning(f"Tool '{name}' provided to OllamaClient has None parameters.")
+        elif not isinstance(parameters, dict):
+             logger.warning(f"Tool '{name}' provided to OllamaClient has invalid parameters type: {type(parameters)}")
 
         return {
             "type": "function",
@@ -122,24 +127,30 @@ class OllamaClient(BaseApiClient):
             yield ("error", "No model specified for Ollama.")
             return
 
-        # --- MOVED INITIALIZATION HERE ---
         ollama_options = {} # Initialize ollama_options before any loops
-        # ---------------------------------
+
+        ollama_options["think"] = True
 
         # Prepare API messages, including tool role and assistant tool_calls
         api_messages = []
         for msg in messages:
-            # ... (the rest of your message processing loop for user, assistant, tool roles)
-            # ... (this part should be fine as per the previous fix)
+
             role = msg.get("role")
             content = msg.get("content")
 
             if role == "tool":
-                api_messages.append({
+                # --- FIXED: Pass tool_call_id to Ollama if available ---
+                # This links the result back to the specific call, preventing context loss.
+                tool_msg = {
                     "role": "tool",
                     "name": msg.get("name"),
                     "content": str(content)
-                })
+                }
+                if msg.get("tool_call_id"):
+                    tool_msg["tool_call_id"] = msg.get("tool_call_id")
+                
+                api_messages.append(tool_msg)
+
             elif role == "assistant":
                 assistant_msg = {"role": "assistant", "content": content or ""}
                 if msg.get("tool_calls"):
@@ -155,15 +166,25 @@ class OllamaClient(BaseApiClient):
                             except (json.JSONDecodeError, TypeError):
                                 logger.warning(f"Ollama: Tool call arguments for '{tc.get('name')}' were a string but not valid JSON: '{args_for_api}'. Using empty dict.")
                                 args_for_api = {}
-                        processed_tool_calls.append({
+                        
+                        # --- FIXED: Include the 'id' and 'type' in the tool call definition ---
+                        tool_call_def = {
+                            "type": "function",
                             "function": {
                                 "name": tc.get("name"),
                                 "arguments": args_for_api
                             }
-                        })
+                        }
+                        if tc.get("id"):
+                            tool_call_def["id"] = tc.get("id")
+                            
+                        processed_tool_calls.append(tool_call_def)
+                    
                     assistant_msg["tool_calls"] = processed_tool_calls
                 api_messages.append(assistant_msg)
+
             elif role in ["user", "system"]:
+                # --- RESTORED: Image and File Upload Logic ---
                 msg_content_parts = []
                 if content:
                     msg_content_parts.append(content)
@@ -196,33 +217,25 @@ class OllamaClient(BaseApiClient):
 
 
         # Prepare Ollama specific options FROM THE 'config' ARGUMENT
-        # This 'config' comes from ChatInstance.generation_params and ChatInstance.selected_model
         ollama_param_map = {
-            # Key in ChatInstance.generation_params : Key in Ollama options
             "temperature": "temperature",
             "top_p": "top_p",
-            "top_k": "top_k", # Ensure your ChatInstance config allows setting 'top_k'
-            # "num_ctx": "num_ctx", # This is advanced, usually set per model in Ollama
-            # "repeat_penalty": "repeat_penalty", # Add to ChatInstance if needed
-            # "tfs_z": "tfs_z", # Add to ChatInstance if needed
-            "max_tokens": "num_predict", # 'max_tokens' is a common name
-            # "stop_sequences": "stop" # 'stop_sequences' is common name
-            # "seed": "seed" # Add to ChatInstance if needed
+            "top_k": "top_k",
+            "max_tokens": "num_predict",
         }
 
         for gen_param_key, ollama_key in ollama_param_map.items():
-            # Use config.get(key) which is ChatInstance.generation_params
             if config.get(gen_param_key) is not None:
                  ollama_options[ollama_key] = config[gen_param_key]
 
-        # Handle stop sequences separately as it's often a list
+        # Handle stop sequences separately
         if config.get("stop_sequences"):
             stops = config["stop_sequences"]
             if isinstance(stops, str) and stops.strip():
                 ollama_options["stop"] = [stops.strip()]
             elif isinstance(stops, list) and all(isinstance(s, str) for s in stops):
-                ollama_options["stop"] = [s for s in stops if s.strip()] # Filter empty strings
-            if "stop" in ollama_options and not ollama_options["stop"]: # Remove if list became empty
+                ollama_options["stop"] = [s for s in stops if s.strip()] 
+            if "stop" in ollama_options and not ollama_options["stop"]: 
                  del ollama_options["stop"]
 
 
@@ -230,10 +243,14 @@ class OllamaClient(BaseApiClient):
             "model": model_name,
             "messages": api_messages,
             "stream": True,
-            "options": ollama_options # Now ollama_options is guaranteed to be defined
+            "options": ollama_options 
         }
 
         if self.tool_schemas:
+            # DEBUG: Print the names of tools actually sent to the model
+            tool_names = [t['function']['name'] for t in self.tool_schemas]
+            print(f"DEBUG: Sending tools to Ollama: {tool_names}") 
+            
             data["tools"] = self.tool_schemas
             logger.info(f"OllamaClient: Providing {len(self.tool_schemas)} tools definition to {model_name}.")
 
@@ -242,11 +259,9 @@ class OllamaClient(BaseApiClient):
         accumulated_tool_calls = []
 
         try:
-            # logger.debug(f"Ollama Request Payload: {json.dumps(data, indent=2)}")
             response = requests.post(
                 f"{self.BASE_URL}/api/chat", headers=headers, json=data, stream=True, timeout=300
             )
-            # ... (rest of the try-except block for streaming the response)
             response.raise_for_status()
 
             for line in response.iter_lines():
@@ -262,30 +277,40 @@ class OllamaClient(BaseApiClient):
                             logger.error(f"Ollama API stream error: {chunk['error']}")
                             yield ("error", f"Ollama API Error: {chunk['error']}"); return
                         message_chunk = chunk.get("message", {})
+
+                        if message_chunk.get("thinking"):
+                            yield ("thinking", message_chunk.get("thinking"))
+                            continue # Skip the rest so it doesn't mess up content processing
+                        
+                        # Handle standard content
                         if message_chunk.get("role") == "assistant":
                             chunk_text = message_chunk.get("content")
                             if chunk_text:
                                 full_response_content += chunk_text
                                 yield ("chunk", chunk_text)
+                        
+                        # Handle tool calls in response
                         if message_chunk.get("tool_calls"):
                             for tc_ollama in message_chunk["tool_calls"]:
                                 if "function" in tc_ollama:
                                     func_data = tc_ollama["function"]
+                                    # Generate ID if missing, or use provided ID
+                                    call_id = f"ollama_{func_data.get('name', 'tool')}_{int(time.time()*1000)}_{len(accumulated_tool_calls)}"
+                                    # --- FIXED: Check if Ollama provided an explicit ID (e.g. from Llama 3.1) ---
+                                    # NOTE: The chunk usually doesn't have the ID, it's aggregated. 
+                                    # But if 'tc_ollama' has 'id', we should use it? 
+                                    # Usually Ollama streams parts, but 'tool_calls' in chunks are often complete objects in newer versions.
+                                    # We'll stick to generating one if missing to be safe.
+                                    
                                     accumulated_tool_calls.append({
-                                        "id": f"ollama_{func_data.get('name', 'tool')}_{int(time.time()*1000)}_{len(accumulated_tool_calls)}",
+                                        "id": call_id, 
                                         "type": "function",
                                         "name": func_data.get("name"),
                                         "arguments": func_data.get("arguments", {})
                                     })
+                        
                         if chunk.get("done") is True:
                             if accumulated_tool_calls:
-                                # First, yield a "thinking" event for each tool.
-                                for tool_call in accumulated_tool_calls:
-                                    tool_name = tool_call.get("name")
-                                    if tool_name:
-                                        yield ("thinking", tool_name)
-
-                                # Then, yield the tool_calls event as before.
                                 yield ("tool_calls", {"calls": accumulated_tool_calls, "text": full_response_content})
                             else:
                                 yield ("finish", full_response_content)

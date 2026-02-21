@@ -35,12 +35,28 @@ def _helper_list_python_functions(manager: _CodebaseManager, file_path: str) -> 
     if file_id is None:
         return {"file_path": file_path, "error": "File not found or DB connection failed.", "status": "error_not_found"}
 
-    query = "SELECT name, signature, start_lineno, end_lineno FROM python_functions WHERE file_id = ? AND class_id IS NULL ORDER BY start_lineno"
+    query = """
+        SELECT 
+            pf.name, 
+            pf.signature, 
+            pc.name as class_name 
+        FROM python_functions pf
+        LEFT JOIN python_classes pc ON pf.class_id = pc.id
+        WHERE pf.file_id = ? 
+        ORDER BY pf.start_lineno
+    """
     cursor = manager._execute_read_query(query, (file_id,))
-    if not cursor:
-        return {"error": "DB query failed for functions.", "status": "error_db_query"}
-
-    functions = [dict(row) for row in cursor.fetchall()]
+    
+    functions = []
+    if cursor:
+        for row in cursor.fetchall():
+            # Format: "my_function" OR "MyClass.my_method"
+            full_name = f"{row['class_name']}.{row['name']}" if row['class_name'] else row['name']
+            functions.append({
+                "name": full_name,
+                "signature": row['signature']
+            })
+            
     return {"file_path": file_path, "functions": functions, "status": "success"}
 
 def _helper_get_python_class_details(manager: _CodebaseManager, file_path: str, class_name: str) -> Dict[str, Any]:
