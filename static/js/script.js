@@ -190,3 +190,34 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 });
+
+// --- CHAT INPUT KEYBOARD SHORTCUTS ---
+// Ctrl+Enter to Send
+// Enter to New Line (default behavior preserved)
+document.addEventListener('keydown', function(event) {
+    // Check if the target is a chat input textarea
+    if (event.target && event.target.tagName === 'TEXTAREA' && event.target.name === 'user_input') {
+        
+        // Ctrl + Enter (or Cmd + Enter on Mac)
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault(); // Prevent newline
+            
+            // Find the form
+            const form = event.target.closest('form');
+            if (form) {
+                // Find and click the submit button to trigger HTMX/form submission properly
+                const submitButton = form.querySelector('button[type="submit"]');
+                if (submitButton && !submitButton.disabled) {
+                    submitButton.click();
+                }
+            }
+        }
+        // Enter without modifiers
+        else if (event.key === 'Enter' && !event.shiftKey && !event.altKey) {
+            // Default behavior is new line. We allow it.
+            // No specific action needed, but stopping propagation ensures
+            // no parent 'Enter-to-submit' handlers interfere.
+            event.stopPropagation();
+        }
+    }
+});

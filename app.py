@@ -17,6 +17,7 @@ import importlib.util
 # --- Persona Integration ---
 # Import the module directly, not a class
 from my_tools import persona_manager
+from my_tools.codebase_manager import _CodebaseManager
 
 dotenv.load_dotenv()
 
@@ -87,6 +88,12 @@ def set_project_root():
         # Update environment variable for tools
         os.environ["CODEBASE_DB_PATH"] = new_root
         
+        # Reset database connections to ensure new path is used
+        try:
+             _CodebaseManager.reset_connections()
+        except Exception as e:
+             print(f"Warning: Failed to reset codebase manager connections: {e}")
+        
         # Persist to config
         app_dir = os.path.dirname(os.path.abspath(__file__))
         config_path = os.path.join(app_dir, CONFIG_FILE)
@@ -110,6 +117,12 @@ def build_project_db():
     
     print(f"Building DB for {target_root} using {script_path}...")
     
+    # Release any existing locks
+    try:
+        _CodebaseManager.reset_connections()
+    except Exception as e:
+        print(f"Warning: Failed to reset codebase manager connections before build: {e}")
+
     try:
         # Run the build script
         # We set cwd to app_dir to ensure any local imports in the script works (if any)
@@ -119,10 +132,13 @@ def build_project_db():
             cwd=app_dir,
             capture_output=True, 
             text=True, 
-            check=True
+            check=True,
+            timeout=120 # Prevent hanging indefinitely
         )
         print("DB Build Output:", result.stdout)
         return f"<span class='text-green-500'>Database built successfully! ({len(result.stdout)} chars output)</span>"
+    except subprocess.TimeoutExpired:
+        return f"<span class='text-red-500'>Build Timed Out (> 120s). Check server logs.</span>", 504
     except subprocess.CalledProcessError as e:
         print("DB Build Error:", e.stderr)
         return f"<span class='text-red-500'>Build Failed: {e.stderr[:200]}...</span>", 500
@@ -369,17 +385,29 @@ def save_edited_context(instance_id):
             print(f"Warning: Unexpected role '{role}' found in edit context. Preserving as is.")
         if content.strip() == '' and idx_str.startswith('new_'): continue
         msg_data = {"role": role, "content": content, "timestamp": timestamp}
+        
+        # --- Handle Thoughts ---
+        thoughts = request.form.get(prefix + 'thoughts')
+        if thoughts:
+             msg_data["thoughts"] = thoughts
+
         tool_call_id = request.form.get(prefix + 'tool_call_id')
         if tool_call_id:
-            tool_name = request.form.get(prefix + 'tool_name')
-            tool_arguments = request.form.get(prefix + 'tool_arguments')
-            tool_calls = [{"id": tool_call_id, "function": {"name": tool_name, "arguments": tool_arguments}, "type": "function"}]
-            msg_data["tool_calls"] = tool_calls
-        tool_result = request.form.get(prefix + 'tool_result')
-        if tool_result:
-            msg_data["tool_call_id"] = tool_call_id
-            msg_data["content"] = tool_result
-            msg_data["role"] = "tool"
+            if role == 'assistant':
+                tool_name = request.form.get(prefix + 'tool_name')
+                tool_arguments = request.form.get(prefix + 'tool_arguments')
+                
+                # Attempt to parse arguments as JSON
+                try:
+                    tool_args_parsed = json.loads(tool_arguments)
+                except (json.JSONDecodeError, TypeError):
+                    tool_args_parsed = tool_arguments
+
+                # Use flat structure: {id, name, arguments}
+                tool_calls = [{"id": tool_call_id, "name": tool_name, "arguments": tool_args_parsed, "type": "function"}]
+                msg_data["tool_calls"] = tool_calls
+            elif role == 'tool':
+                msg_data["tool_call_id"] = tool_call_id
         edited_history.append(msg_data)
     instance.chat_history = edited_history
     chat_manager.save_instance_state(instance)

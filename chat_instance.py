@@ -202,6 +202,7 @@ class ChatInstance:
 
                 # -- API Stream Loop --
                 text_buffer = ""
+                thought_buffer = ""
                 tool_calls = []
                 cycle_finished = False
 
@@ -213,6 +214,9 @@ class ChatInstance:
                     if chunk_type == "chunk":
                         text_buffer += data
                         self.sse_queue.put(json.dumps({"type": "chunk", "content": data}))
+                    elif chunk_type == "thinking":
+                        thought_buffer += data
+                        self.sse_queue.put(json.dumps({"type": "thinking", "content": data}))
                     elif chunk_type == "tool_calls":
                         tool_calls = data.get("calls", [])
                         text_buffer = data.get("text", text_buffer)
@@ -226,19 +230,25 @@ class ChatInstance:
                 # -- Cycle Handling --
                 if not tool_calls:
                     final_content = text_buffer
-                    current_messages.append({"role": "assistant", "content": final_content, "timestamp": datetime.datetime.now().isoformat()})
+                    msg = {"role": "assistant", "content": final_content, "timestamp": datetime.datetime.now().isoformat()}
+                    if thought_buffer:
+                        msg["thoughts"] = thought_buffer
+                    current_messages.append(msg)
                     break # Conversation Turn Complete
                 
                 # -- Tool Execution --
                 final_content = text_buffer # Save partial text
                 
                 # 1. Add Assistant Request to History
-                current_messages.append({
+                msg = {
                     "role": "assistant", 
                     "content": text_buffer, 
                     "tool_calls": tool_calls,
                     "timestamp": datetime.datetime.now().isoformat()
-                })
+                }
+                if thought_buffer:
+                    msg["thoughts"] = thought_buffer
+                current_messages.append(msg)
                 
                 self.sse_queue.put(json.dumps({"type": "status", "content": f"Executing {len(tool_calls)} tools..."}))
 

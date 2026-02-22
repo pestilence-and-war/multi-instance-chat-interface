@@ -63,7 +63,8 @@ EXCLUDED_DIRS = {
     'node_modules', 'venv', '.venv', '__pypackages__', 'vendor', # Dependency directories
     'dist', 'build', # Build/distribution directories
     '.idea', '.vscode', '__pydevd_remote_debug_server__', # IDE specific directories
-    'chat_sessions', 'chat_logs', 'instance_data', 'chroma_db' # Add other directories here as needed
+    'chat_sessions', 'chat_logs', 'instance_data', 'chroma_db', # App specific
+    'Lib', 'lib', 'libs', 'include', 'site-packages', 'bin', 'Scripts' # Standard library/env folders
 }
 
 # Define specific filenames to exclude regardless of the directory they are in.
@@ -83,7 +84,7 @@ BINARY_EXTENSIONS = {
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.ico', # Images
     '.mp4', '.mp3', '.avi', '.mov', '.webm', # Media
     '.pdf', '.docx', '.xlsx', '.pptx', # Documents
-    '.bin', '.exe', '.dll', '.so', '.dylib', '.o', '.a', '.lib', '.class', '.pyc', '.pyd', # Binaries/Compiled
+    '.exe', '.dll', '.so', '.dylib', '.o', '.a', '.class', '.pyc', '.pyd', # Binaries/Compiled
     '.zip', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.rar', '.7z', # Archives
     '.sqlite', '.db', '.sql', # Databases/SQL dumps (often binary or large text dumps)
     '.pem', '.key', '.cer', '.crt', '.pfx', '.p12', # Keys/Certificates
@@ -127,7 +128,7 @@ INCLUDE_CONTENT_FOR_SPECIFIC_FILENAMES = {
 # the LLM to know exist, but whose source you don't need to manage or diff.
 MANAGED_EXTENSIONS = {
     '.min.js', '.bundle.js', '.css.map', '.js.map', # Example minified/bundled/map files
-    # Add other extensions here for files whose content should be omitted
+    '.gguf', '.pth', '.onnx', '.safetensors', '.tflite', '.h5', '.keras', '.model', '.bin' # AI Models
 }
 
 # Define specific filenames that should be 'managed' regardless of extension.
@@ -149,6 +150,9 @@ PARSEABLE_CODE_EXTENSIONS = {
     '.toml', # NEW: Added TOML
     # Add other code/markup language extensions here (e.g., '.jsx', '.ts', '.tsx', '.vue')
 }
+
+# Maximum file size to index content (1MB). Files larger than this will be treated as "managed" (metadata only).
+MAX_FILE_SIZE = 1024 * 1024 
 
 ### DB MOD ###: New function to create the database schema
 def create_schema(cursor):
@@ -1350,8 +1354,12 @@ def build_project_database(root_dir=".", output_filename="project_context.db"):
                 managed_count += 1
                 line_count_m = 1
                 try:
-                    with open(filepath, 'rb') as f_bytes:
-                        line_count_m = f_bytes.read().count(b'\n') + 1
+                    # Check size before reading to avoid hanging on massive files
+                    if os.path.getsize(filepath) <= MAX_FILE_SIZE:
+                        with open(filepath, 'rb') as f_bytes:
+                            line_count_m = f_bytes.read().count(b'\n') + 1
+                    else:
+                        print(f"Skipping line count for large managed file: {relative_filepath}")
                 except Exception: pass
 
                 ### DB MOD ###: Insert managed file entry into the DB
@@ -1363,6 +1371,25 @@ def build_project_database(root_dir=".", output_filename="project_context.db"):
                 insert_file_data(cursor, managed_entry)
                 processed_file_count += 1
                 continue
+
+            # --- NEW: Check File Size ---
+            try:
+                file_size = os.path.getsize(filepath)
+                if file_size > MAX_FILE_SIZE:
+                    managed_count += 1
+                    # Treat large files as managed/skipped content
+                    large_file_entry = {
+                        "path": relative_filepath, "type": "managed_static",
+                        "message": f"File content too large to index (> {MAX_FILE_SIZE/1024/1024:.2f} MB).",
+                        "full_content": None, "start_lineno": 1, "end_lineno": 1
+                    }
+                    insert_file_data(cursor, large_file_entry)
+                    processed_file_count += 1
+                    if processed_file_count % 50 == 0:
+                        print(f"Processed {processed_file_count} files...", flush=True)
+                    continue
+            except OSError:
+                pass # If we can't get size, try to read it anyway (or fail later)
 
             # --- Try to read and process content ---
             content = None
@@ -1504,6 +1531,9 @@ def build_project_database(root_dir=".", output_filename="project_context.db"):
                 insert_file_data(cursor, error_details)
                 processed_file_count += 1
 
+            if processed_file_count % 50 == 0:
+                print(f"Processed {processed_file_count} files...", flush=True)
+
     ### DB MOD ###: Finalize the database
     try:
         # Insert metadata
@@ -1542,4 +1572,6 @@ def build_project_database(root_dir=".", output_filename="project_context.db"):
 
 if __name__ == "__main__":
     root_directory = sys.argv[1] if len(sys.argv) > 1 else "."
-    build_project_database(root_directory)
+    # Ensure the DB is created INSIDE the target project directory
+    output_path = os.path.join(root_directory, "project_context.db")
+    build_project_database(root_directory, output_path)
