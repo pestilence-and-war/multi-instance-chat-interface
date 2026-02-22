@@ -26,7 +26,7 @@ class BaseApiClient(ABC):
                                 ) -> Generator[Tuple[str, Any], None, None]: # Yield type changed to Any for tool data
         """
         Send messages and yield ('type', 'content') tuples.
-        Types: 'chunk', 'error', 'finish', 'tool_calls', 'stopped'.
+        Types: 'chunk', 'error', 'finish', 'tool_calls', 'stopped', 'thinking'.
                Optionally: 'tool_call', 'tool_result' for UI feedback during execution.
         Checks stop_event periodically.
         Handles the API interaction for potential tool calls.

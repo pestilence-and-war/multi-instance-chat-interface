@@ -25,6 +25,16 @@
 {% elif role == 'assistant' %}
 <div class="mb-3 flex">
     <div class="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-200 p-3 rounded-lg shadow assistant-message w-full">
+         {% if msg.thoughts %}
+         <details class="mb-2 group/think border-l-2 border-gray-500 pl-3 ml-1">
+            <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-300 select-none flex items-center gap-1 list-none outline-none">
+                <span class="transition-transform group-open/think:rotate-90">▶</span>
+                <span class="font-mono uppercase tracking-wider">Reasoning Process</span>
+            </summary>
+            <div class="mt-2 text-xs text-gray-500 font-mono whitespace-pre-wrap leading-relaxed opacity-90">{{ msg.thoughts }}</div>
+        </details>
+        {% endif %}
+
          {% if content %}
          <div class="max-w-none markdown-content mb-2">
             {{ content | markdown | safe }}

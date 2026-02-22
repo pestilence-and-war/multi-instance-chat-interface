@@ -23,6 +23,23 @@ class _CodebaseManager:
             cls._instance = super(_CodebaseManager, cls).__new__(cls)
         return cls._instance
 
+    @classmethod
+    def reset_connections(cls):
+        """
+        Forces a reset of the database connections.
+        Useful when the database path (project root) changes during runtime.
+        """
+        if cls._read_conn:
+            try: cls._read_conn.close()
+            except: pass
+            cls._read_conn = None
+            
+        if cls._write_conn:
+            try: cls._write_conn.close()
+            except: pass
+            cls._write_conn = None
+        print(f"CodebaseManager: Database connections reset. New path will be derived from CODEBASE_DB_PATH='{os.environ.get('CODEBASE_DB_PATH')}'")
+
     def _get_db_path(self) -> str:
         """(Internal) Helper to consistently construct the database path."""
         workspace_dir = os.environ.get("CODEBASE_DB_PATH", ".")
