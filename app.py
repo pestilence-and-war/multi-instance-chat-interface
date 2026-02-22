@@ -119,10 +119,13 @@ def build_project_db():
             cwd=app_dir,
             capture_output=True, 
             text=True, 
-            check=True
+            check=True,
+            timeout=120 # Prevent hanging indefinitely
         )
         print("DB Build Output:", result.stdout)
         return f"<span class='text-green-500'>Database built successfully! ({len(result.stdout)} chars output)</span>"
+    except subprocess.TimeoutExpired:
+        return f"<span class='text-red-500'>Build Timed Out (> 120s). Check server logs.</span>", 504
     except subprocess.CalledProcessError as e:
         print("DB Build Error:", e.stderr)
         return f"<span class='text-red-500'>Build Failed: {e.stderr[:200]}...</span>", 500
