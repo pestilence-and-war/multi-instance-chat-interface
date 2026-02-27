@@ -46,3 +46,13 @@ def _run_jailed_command(command: str, working_dir: str) -> str:
         }, indent=2)
     except Exception as e:
         return json.dumps({'status': 'error', 'message': f'An unexpected error occurred: {e}'}, indent=2)
+
+def execute_command(command: str) -> str:
+    """
+    Executes a shell command within the secure sandbox environment.
+    Use this tool to run build commands, tests, or file operations that cannot be handled by other tools.
+    
+    @param command (string): The command to execute (e.g., 'python app.py', 'npm test').
+    """
+    working_dir = _get_project_root()
+    return _run_jailed_command(command, working_dir)

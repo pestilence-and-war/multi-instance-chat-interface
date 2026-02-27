@@ -1,56 +1,64 @@
-# Autonomous Agent Task Force System (AATFS) Guide
+# The Digital Office Framework (AATFS)
 
-This document provides a comprehensive overview of the Autonomous Agent Task Force System (AATFS), a headless, multi-agent framework designed to automate complex development workflows.
+This guide provides a comprehensive overview of the **Digital Office Framework**, the core architectural philosophy of the Autonomous Agent Task Force System (AATFS). This framework enables a team of AI agents to collaborate on complex projects with high fidelity, data integrity, and autonomous error correction.
 
-## 1. Core Concept
+## 1. Core Concept: The Digital Office
 
-The AATFS operates as a "headless office" where AI-powered agents collaborate to complete tasks defined by a user. It uses a file-based queueing system to manage tasks and orchestrate the interactions between different agent personas, such as the "Project Manager," "Developer," and "Test Engineer."
+The AATFS transforms a single LLM into an "Office" composed of specialized domain experts (Personas). Unlike standard chat systems, these agents do not work in isolation; they share a **Project Journal** and follow a strict **Orchestration Protocol** to deliver final products.
 
-The entire system is driven by the `event_monitor.py` script, which acts as the central event loop, watching for changes in the task system and triggering the appropriate agents to perform their roles.
+The entire system is managed via the **Project Manager (PM)** or specialized "Directors" (e.g., Creative Director, Game Director), who act as the orchestrators of the project lifecycle.
 
-## 2. The Task Directory Structure
+## 2. The Shared Project Journal
 
-The heart of the AATFS is the `tasks/` directory. Each subdirectory represents a specific stage in the lifecycle of a task. Task files are simple JSON documents that are moved between these directories as they progress through the workflow.
+The **Project Journal** is the "Source of Truth" for the entire office. It is a shared, searchable, and persistent space where all specialists record their progress, findings, and deliverables.
 
--   **`tasks/0_pending/`**
-    -   **Purpose:** The initial queue for all new tasks. When a new project is defined, the Project Manager breaks it down into smaller, actionable tasks and places them here.
+-   **Research_Findings_v1**: Raw data, facts, and the **Source Manifest**.
+-   **Financial_Analysis_v1**: Budgetary and numerical findings.
+-   **Final_Draft_v1**: The primary output (e.g., a blog post, script, or code).
+-   **Editor_Feedback**: Critiques, audit results, and rejection reasons.
+-   **Technical_Architecture**: System designs and implementation plans.
 
--   **`tasks/1_assigned/`**
-    -   **Purpose:** Contains tasks that have been assigned to a specialist agent (e.g., a Developer). The agent responsible for the task will work on it while the task file resides here.
+## 3. The Specialist Workflow: Read-Modify-Write (RMW)
 
--   **`tasks/2_testing/`**
-    -   **Purpose:** The quality assurance queue. When a developer creates a deliverable, the corresponding task is moved here to await validation by the Test Engineer.
+To maintain context and prevent "cascade failures," all specialists follow the **RMW Protocol**:
 
--   **`tasks/3_review/`**
-    -   **Purpose:** (For `stepped` mode) Tasks that require human intervention or approval are placed here. The system pauses until the user manually resolves the review.
+1.  **READ PREVIOUS**: Specialists must read the previous draft (v1, v2) and any feedback (Editor_Feedback) before starting.
+2.  **MODIFY (FULL REWRITE)**: Specialists perform a *complete rewrite* of the deliverable, integrating the new findings or fixes into the existing context.
+3.  **WRITE VERSIONED**: Specialists save their new work to a new version (e.g., `Final_Draft_v2`) to preserve the "Paper Trail."
 
--   **`tasks/4_done/`**
-    -   **Purpose:** The final destination for successfully completed and verified tasks.
+## 4. Data Integrity: The Source Manifest & Anchors
 
--   **`tasks/5_failed/`**
-    -   **Purpose:** A general failure queue. Tasks are moved here if they fail due to system errors or exceed their maximum retry count at any stage.
+To eliminate hallucinations, the office follows a strict data anchoring protocol:
 
--   **`tasks/6_failed_test/`**
-    -   **Purpose:** An archive for tasks that have failed the testing phase. After a Test Engineer submits a FAIL report, the Project Manager moves the original task here for analysis and creates a new bug-fix task.
+-   **The Source Manifest**: Every `Research_Findings` entry *must* end with a list of verified URLs used.
+-   **Data Snippets**: Researchers provide literal quotes (snippets) from sources to "anchor" all numerical and factual claims.
+-   **Top-Line Anchors**: Agents must identify and verify "anchor" metrics (e.g., Total Revenue) before deriving or calculating any sub-metrics.
 
-## 3. The "Test and Correct" Workflow Lifecycle
+## 5. The "Diagnostic Loop" (Autonomous Error Correction)
 
-The AATFS implements a robust feedback loop to ensure the quality of the work produced. This workflow is orchestrated by the Project Manager in response to deliverables created by other agents.
+The most powerful feature of the AATFS is the **Diagnostic Loop**, orchestrated by the **Project Manager** in response to feedback from the **Editor** or **Test Engineer**.
 
-1.  **Task Creation:** A user provides a high-level goal. The **Project Manager** persona is triggered, breaking the goal into one or more task files and placing them in `tasks/0_pending/`.
+1.  **Orchestration**: The PM hires a Specialist (e.g., Writer) and an Auditor (e.g., Editor).
+2.  **Audit**: The Auditor compares the work to the research and rules. They issue a `PASS` or `FAIL`.
+3.  **Triage**: If a `FAIL` occurs, the PM does not guess the reason. They read the **Editor_Feedback**.
+4.  **Correction**: The PM re-delegates the specific fix to the Specialist, providing them with the exact failure reason and context.
+5.  **Finalization**: The project only completes when the Auditor issues a `PASS`.
 
-2.  **Assignment:** The `event_monitor.py` script triggers the **Project Manager** to assign a task. The PM moves a task from `0_pending` to `tasks/1_assigned/`.
+## 6. Staffing & Roles
 
-3.  **Development:** The monitor detects the new task in `1_assigned` and triggers the assigned **Developer** persona. The developer reads the task, writes the necessary code, and saves their work to the `archive/deliverables/` directory.
+The AATFS includes a diverse bank of personas, each with unique toolsets:
 
-4.  **Queue for Testing:** The monitor detects the new deliverable and triggers the **Project Manager**. The PM identifies the completed development task in `1_assigned` and moves it to `tasks/2_testing/`.
+| Role | Competency |
+| :--- | :--- |
+| **Project Manager** | CEO and lead orchestrator. Staffs teams and manages the Diagnostic Loop. |
+| **Architect** | High-level system design and initial workspace setup. |
+| **Researcher** | Deep information gathering using Tavily and Grokipedia. |
+| **Financial Analyst** | Budgeting, forecasting, and math-verified data analysis. |
+| **Developer** | Full-stack implementation and code auditing. |
+| **Editor** | Quality assurance, hallucination checks, and final polishing. |
 
-5.  **Testing:** The monitor detects the new task in `2_testing` and triggers the **Test Engineer** persona. The Test Engineer analyzes the original task requirements and the developer's deliverable, runs automated tests, and creates a `Test_Report_...` deliverable.
+## 7. Operational Standards
 
-6.  **Triage and Resolution:** The monitor detects the test report and triggers the **Project Manager** again.
-    -   **If the report is `Test_Report_PASS_...`**: The PM moves the task from `2_testing` to `4_done`. **The task is complete.**
-    -   **If the report is `Test_Report_FAIL_...`**:
-        a. The PM moves the failed task from `2_testing` to `6_failed_test` for archival.
-        b. The PM creates a *new* bug-fix task in `0_pending/`, instructing the developer to fix the issue described in the FAIL report. The cycle then repeats from Step 2.
-
-This automated "test and correct" loop allows the agent team to autonomously identify and resolve its own errors, leading to a much higher quality of final output.
+-   **Markdown First**: All journal entries and reports must use Markdown for clarity and structure.
+-   **No Overwriting**: Always use versioned suffixes (`v1`, `v2`) to maintain a clear audit trail.
+-   **Silence is Mandatory**: High-level orchestrators (Architect) often output only tool calls to ensure speed and focus.

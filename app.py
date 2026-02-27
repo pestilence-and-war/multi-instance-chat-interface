@@ -101,11 +101,15 @@ def set_project_root():
         with open(config_path, 'w') as f:
             json.dump({'project_root': new_root}, f)
             
-        # We do NOT reload chat_manager anymore. 
-        # The application state (chats) remains constant.
-        # Only the tools' target directory changes.
+        # --- NEW: Monitor Safety ---
+        global monitor_process
+        monitor_msg = ""
+        if monitor_process is not None and monitor_process.poll() is None:
+            monitor_process.terminate()
+            monitor_process = None
+            monitor_msg = " (Monitor stopped - please restart it for the new workspace)"
         
-        return f"<span class='text-green-500'>Success! Target set to {new_root}.</span>"
+        return f"<span class='text-green-500'>Success! Target set to {new_root}.{monitor_msg}</span>"
     except Exception as e:
         return f"<span class='text-red-500'>Error: {e}</span>", 500
 
@@ -258,6 +262,56 @@ def update_config(instance_id):
     except Exception as e:
         return render_template('partials/status_update.html', instance_id=instance_id, message=f"Error: {e}", is_error=True)
 
+@app.route('/chat/<instance_id>/apply_persona', methods=['POST'])
+def apply_persona(instance_id):
+    instance = chat_manager.get_instance(instance_id)
+    if not instance: return "Not Found", 404
+    if instance.is_generating: return Response(status=409, response="Cannot change persona while generating.")
+    
+    persona_name = request.form.get('persona_name')
+    if not persona_name:
+        return render_template('partials/status_update.html', instance_id=instance_id, message="No persona selected.", is_error=True)
+
+    try:
+        # 1. Get Persona Details
+        from my_tools import persona_manager
+        details_json = persona_manager.get_persona_details(persona_name)
+        details = json.loads(details_json)
+        
+        if details.get("status") == "error":
+            return render_template('partials/status_update.html', instance_id=instance_id, message=f"Persona '{persona_name}' not found.", is_error=True)
+
+        # 2. Update Instance Config (Keep current model and provider)
+        model_config = details.get("model_config", {})
+        instance.set_config(
+            system_prompt=details.get("system_prompt"),
+            # We specifically DO NOT override instance.selected_model here
+            # to respect the user's UI selection.
+            temp=model_config.get("generation_params", {}).get("temperature")
+        )
+
+        # 3. Clear and Register Tools
+        # We unregister all current tools first for a clean swap
+        for tool_name in list(instance.tool_manager.active_tools.keys()):
+            instance.unregister_tool(tool_name)
+            
+        instance.tool_manager.build_module_map()
+        for tool_name in details.get("tools", []):
+            module_path = instance.tool_manager.tool_module_map.get(tool_name)
+            if module_path:
+                instance.register_tool(name=tool_name, module_path=module_path, function_name=tool_name)
+
+        instance.name = f"{persona_name} Mode"
+        chat_manager.save_instance_state(instance_id)
+        
+        # Return the whole instance block to refresh the UI with new prompt/tools
+        return render_template('chat_instance.html', instance=instance)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return render_template('partials/status_update.html', instance_id=instance_id, message=f"Apply Error: {e}", is_error=True)
+
 @app.route('/chat/<instance_id>/send', methods=['POST'])
 def send_user_message(instance_id):
     instance = chat_manager.get_instance(instance_id)
@@ -317,14 +371,15 @@ def stream_response(instance_id):
         try:
             while True:
                 try:
-                    message_json = sse_message_queue.get(timeout=120)
+                    # Shorter timeout to allow sending heartbeats
+                    message_json = sse_message_queue.get(timeout=15)
+                    if message_json is None:
+                        break
+                    yield f"data: {message_json}\n\n"
+                    sse_message_queue.task_done()
                 except queue.Empty:
-                     yield f"data: {json.dumps({'type': 'error', 'content': 'Stream timed out.'})}\n\n"
-                     break
-                if message_json is None:
-                    break
-                yield f"data: {message_json}\n\n"
-                sse_message_queue.task_done()
+                    # Send an SSE heartbeat (comment) to keep the connection alive
+                    yield ": heartbeat\n\n"
         except Exception as e:
              yield f"data: {json.dumps({'type': 'error', 'content': f'SSE generator error: {e}'})}\n\n"
         finally:
@@ -534,6 +589,92 @@ def register_tool_route_manual(instance_id):
                 instance.connection_error = None
                 is_error = True
     return render_template('partials/tools_manager.html', instance=instance, status_message=status_message, is_error=is_error)
+
+# --- Event Monitor Controls ---
+
+@app.route('/api/models/<provider>')
+def get_provider_models(provider):
+    """Returns available models for a given provider."""
+    try:
+        client_class = API_CLIENT_CLASSES.get(provider)
+        if not client_class:
+             return jsonify({"error": "Provider not found", "models": []}), 404
+        
+        # 1. Resolve API Key
+        env_var_name = f"{provider.upper().replace('CLIENT','').replace('.','_')}_API_KEY"
+        api_key = os.getenv(env_var_name)
+        
+        # 2. Instantiate (Handle missing key gracefully for local providers like Ollama)
+        try:
+            # Some clients might require api_key in init, others (Ollama) might not strictly need it
+            # We pass it if we have it, or a dummy if strictly required by signature but not used (logic depends on client)
+            if api_key:
+                client = client_class(api_key=api_key)
+            else:
+                # Try instantiating without arguments if possible, or with dummy
+                try:
+                    client = client_class() 
+                except TypeError:
+                    client = client_class(api_key="dummy_key_for_listing")
+        except Exception as e:
+             print(f"Error instantiating {provider}: {e}")
+             return jsonify({"status": "error", "message": f"Init failed: {e}", "models": []}), 500
+
+        # 3. Fetch Models
+        try:
+            # Prefer the explicit method call defined in subclasses
+            if hasattr(client, 'get_available_models'):
+                models = client.get_available_models()
+            elif hasattr(client, 'available_models'):
+                models = client.available_models
+            else:
+                models = ["default-model"] # Fallback
+            
+            return jsonify({"status": "success", "models": models})
+        except Exception as e:
+             print(f"Error fetching models for {provider}: {e}")
+             return jsonify({"status": "error", "message": str(e), "models": []}), 500
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e), "models": []}), 500
+
+@app.route('/api/monitor/logs')
+def stream_monitor_logs():
+    """Streams the monitor_logs.txt file via SSE."""
+    log_file = "monitor_logs.txt"
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    log_path = os.path.join(app_dir, log_file)
+
+    def generate():
+        # Wait for file to exist
+        retries = 0
+        while not os.path.exists(log_path) and retries < 10:
+            time.sleep(0.5)
+            retries += 1
+            
+        if not os.path.exists(log_path):
+             yield f"data: {json.dumps({'content': 'Log file not found.'})}\n\n"
+             return
+
+        with open(log_path, 'r') as f:
+            # Go to end of file initially to show only new logs? 
+            # Or show last N lines? Let's show last 20 lines then stream.
+            lines = f.readlines()
+            for line in lines[-20:]:
+                yield f"data: {json.dumps({'content': line.strip()})}\n\n"
+            
+            f.seek(0, 2) # Go to end
+            
+            while True:
+                line = f.readline()
+                if not line:
+                    time.sleep(0.5)
+                    continue
+                yield f"data: {json.dumps({'content': line.strip()})}\n\n"
+
+    headers = {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache'}
+    return Response(generate(), headers=headers)
+
 
 @app.route('/chat_sessions/<path:filename>')
 def serve_uploaded_file(filename):

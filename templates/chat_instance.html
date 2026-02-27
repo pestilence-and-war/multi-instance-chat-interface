@@ -72,6 +72,23 @@
                     {% endif %}
                 </select>
             </div>
+            {# --- NEW: Persona Selection --- #}
+            <div>
+                <label for="persona-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Apply Persona</label>
+                <select name="persona_name" id="persona-{{ instance.instance_id }}"
+                        {# Trigger persona application on change #}
+                        hx-post="{{ url_for('apply_persona', instance_id=instance.instance_id) }}"
+                        hx-trigger="change"
+                        hx-target="#chat-instance-{{ instance.instance_id }}"
+                        hx-swap="outerHTML"
+                        hx-indicator="#loading-indicator"
+                        class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200">
+                    <option value="">-- Select Persona --</option>
+                    {% for p in available_personas %}
+                        <option value="{{ p }}">{{ p }}</option>
+                    {% endfor %}
+                </select>
+            </div>
         </div>
 
         {# Show Connect button ONLY if not connected #}
@@ -94,7 +111,7 @@
                             {% if instance.is_generating %} bg-gray-100 dark:bg-gray-700 cursor-not-allowed {% endif %}">{{ instance.system_prompt }}</textarea>
         </div>
         {# --- Parameters --- #}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
                 <label for="temp-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Temperature: <span class="font-mono">{{ "%.2f"|format(instance.generation_params.get('temperature', 0.7)) }}</span>
@@ -116,6 +133,17 @@
                         class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700
                                 {% if instance.is_generating %} opacity-50 cursor-not-allowed {% endif %}"
                         oninput="this.previousElementSibling.querySelector('span').textContent = parseFloat(this.value).toFixed(2)">
+            </div>
+            <div>
+                <label for="max-turns-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Max Turns: <span class="font-mono">{{ 'Unlimited' if instance.generation_params.get('max_turns', 30)|int == 0 else instance.generation_params.get('max_turns', 30) }}</span>
+                </label>
+                <input type="number" name="max_turns" id="max-turns-{{ instance.instance_id }}" min="0" step="1"
+                        value="{{ instance.generation_params.get('max_turns', 30) }}"
+                        {{ 'disabled' if instance.is_generating }}
+                        class="w-full p-1 text-sm bg-gray-200 rounded border border-gray-300 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200 focus:ring-indigo-500 focus:border-indigo-500
+                                {% if instance.is_generating %} opacity-50 cursor-not-allowed {% endif %}"
+                        oninput="this.previousElementSibling.querySelector('span').textContent = (this.value == 0 || this.value == '') ? 'Unlimited' : this.value">
             </div>
         </div>
     </form>

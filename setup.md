@@ -70,7 +70,6 @@ TAVILY_API_KEY='your_tavily_key'
 # Project Context Configuration
 # This is the path to the directory you want the AI to analyze and edit.
 # On Windows, use double backslashes (\\) or forward slashes (/).
-CODEBASE_DB_PATH='/absolute/path/to/your/project/workspace'
 ```
 
 ---
@@ -97,28 +96,4 @@ Access the app at: `http://127.0.0.1:5000`
 
 ## Part 3: Optional Legacy Windows Sandbox
 
-> **Note:** The core file management tools (`create_file`, `delete_file`, etc.) have been updated to be OS-agnostic and secure by default. You **do not** need this sandbox setup for normal operation.
-
-This section is only relevant if you are on Windows and explicitly wish to use the legacy `jailed_shell_tool.py` which relies on PowerShell JEA (Just Enough Administration) to run arbitrary shell commands.
-
-### 1. Run the Sandbox Setup Script
-*Requires Administrator PowerShell.*
-
-```powershell
-.\Setup-Simple-Sandbox.ps1
-```
-Follow the prompts to create the `JeaToolUser` and password.
-
-### 2. Grant Permissions
-*Requires Administrator PowerShell.*
-
-```powershell
-.\Fix-Project-Permissions.ps1
-```
-
-### 3. Launching with JEA
-To run the application inside this sandbox, do not use the standard python command. Instead:
-
-1.  Double-click `run_app_as_jea_user.bat`.
-2.  Enter the `JeaToolUser` password when prompted.
-3.  The server will start in the background. Stop it via Windows Task Manager.
+>### Setup no longer supported, files removed

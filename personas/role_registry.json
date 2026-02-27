@@ -2,23 +2,153 @@
   "roles": [
     {
       "name": "Project Manager",
-      "description": "Manages the project, breaks down tasks, and assigns them to specialists."
+      "file": "Project_Manager.json",
+      "competency": "CEO and lead orchestrator. Staffs teams, sets plans, and delivers final products using diagnostic loops.",
+      "tools": ["delegate_task", "archive_journal_entry", "read_project_journal", "read_journal_entry", "setup_digital_office_structure", "list_personas", "create_persona", "deploy_agent"]
+    },
+    {
+      "name": "Creative Director",
+      "file": "Creative_Director.json",
+      "competency": "Creative orchestrator for content, media, and marketing projects.",
+      "tools": ["delegate_task", "archive_journal_entry", "read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "Technical Lead",
+      "file": "Technical_Lead.json",
+      "competency": "Technical orchestrator for software, games, and complex engineering.",
+      "tools": ["delegate_task", "archive_journal_entry", "read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "Game Director",
+      "file": "Game_Director.json",
+      "competency": "Specialized leader for game development. Orchestrates mechanics, code, and playtesting.",
+      "tools": ["delegate_task", "archive_journal_entry", "read_project_journal", "read_journal_entry", "add_to_project_journal", "list_personas"]
     },
     {
       "name": "Architect",
-      "description": "Analyzes the initial user request and defines the required team of personas and a high-level plan."
+      "file": "architect.json",
+      "competency": "High-level system design and initial workspace setup.",
+      "tools": ["create_persona", "setup_digital_office_structure", "jailed_create_file"]
     },
     {
       "name": "Developer",
-      "description": "A general-purpose software developer for executing coding tasks."
+      "file": "developer.json",
+      "competency": "General-purpose software development and debugging.",
+      "tools": ["create_or_update_file_safely", "apply_code_modification", "execute_command", "get_file_content", "read_journal_entry"]
     },
     {
       "name": "Frontend Developer",
-      "description": "A specialist developer who implements user interfaces using web technologies."
+      "file": "frontend_developer.json",
+      "competency": "UI implementation and web aesthetics.",
+      "tools": ["create_or_update_file_safely", "apply_code_modification", "get_file_content", "read_journal_entry"]
+    },
+    {
+      "name": "Game Designer",
+      "file": "Game_Designer.json",
+      "competency": "Expert in game mechanics, balance, and fun.",
+      "tools": ["read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "Game Developer",
+      "file": "Game_Developer.json",
+      "competency": "Specialized developer for game logic and interactivity.",
+      "tools": ["create_or_update_file_safely", "execute_command", "read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "Researcher",
+      "file": "Researcher.json",
+      "competency": "Deep information gathering using web and local tools.",
+      "tools": ["tavily_search", "grokipedia_search", "get_file_content", "read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "Blogger",
+      "file": "Blogger.json",
+      "competency": "Specialist in SEO-optimized and engaging blog content.",
+      "tools": ["read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "Scriptwriter",
+      "file": "Scriptwriter.json",
+      "competency": "Dialogue, scene structure, and pacing for scripts.",
+      "tools": ["read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "News Anchor",
+      "file": "News_Anchor.json",
+      "competency": "Formal news delivery and high-fidelity script polishing.",
+      "tools": ["read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "Field Reporter",
+      "file": "Field_Reporter.json",
+      "competency": "On-the-scene data gathering and local reporting.",
+      "tools": ["tavily_search", "read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "Writer",
+      "file": "Writer.json",
+      "competency": "General-purpose high-quality content creation.",
+      "tools": ["read_project_journal", "read_journal_entry", "add_to_project_journal"]
+    },
+    {
+      "name": "Editor",
+      "file": "Editor.json",
+      "competency": "Quality assurance for content, auditing, and polishing.",
+      "tools": ["read_project_journal", "read_journal_entry", "add_to_project_journal"]
     },
     {
       "name": "Test Engineer",
-      "description": "Executes specific, verifiable actions for testing system components and workflows."
+      "file": "Test_Engineer.json",
+      "competency": "System validation, unit testing, and pass/fail reporting.",
+      "tools": ["execute_command", "get_file_content", "create_or_update_file_safely"]
+    },
+    {
+      "name": "UI UX Designer",
+      "file": "UI_UX_Designer.json",
+      "competency": "Modern UI design, wireframing, and style guide creation.",
+      "tools": ["create_or_update_file_safely", "read_project_journal", "add_to_project_journal"]
+    },
+    {
+      "name": "Legal Consultant",
+      "file": "Legal_Consultant.json",
+      "competency": "Risk mitigation, contract drafting, and compliance auditing.",
+      "tools": ["read_project_journal", "add_to_project_journal"]
+    },
+    {
+      "name": "Financial Analyst",
+      "file": "Financial_Analyst.json",
+      "competency": "Budgeting, financial forecasting, and data analysis.",
+      "tools": ["math_tool", "read_project_journal", "add_to_project_journal"]
+    },
+    {
+      "name": "Social Media Manager",
+      "file": "Social_Media_Manager.json",
+      "competency": "Brand presence, short-form content, and engagement.",
+      "tools": ["read_project_journal", "add_to_project_journal"]
+    },
+    {
+      "name": "Data Scientist",
+      "file": "Data_Scientist.json",
+      "competency": "Python-based data modeling and statistical analysis.",
+      "tools": ["execute_command", "math_tool", "read_project_journal", "add_to_project_journal"]
+    },
+    {
+      "name": "DevOps Engineer",
+      "file": "DevOps_Engineer.json",
+      "competency": "Automation, deployment pipelines, and reliability engineering.",
+      "tools": ["execute_command", "create_or_update_file_safely", "read_project_journal", "add_to_project_journal"]
+    },
+    {
+      "name": "Security Expert",
+      "file": "Security_Expert.json",
+      "competency": "Rigorous security auditing and vulnerability assessment.",
+      "tools": ["execute_command", "get_file_content", "read_project_journal", "add_to_project_journal"]
+    },
+    {
+      "name": "Business Analyst",
+      "file": "Business_Analyst.json",
+      "competency": "Requirement definition and market trend research.",
+      "tools": ["read_project_journal", "add_to_project_journal"]
     }
   ]
 }

@@ -1,128 +1,88 @@
-# Multi-Instance AI Chat Interface
+# Multi-Instance AI Digital Office Interface
 
-This project is a sophisticated, web-based chat application designed to manage multiple, simultaneous chat sessions with a variety of AI providers. It features a dynamic, tabbed interface built with HTMX for a seamless user experience, a powerful and extensible tool integration system, and a customizable frontend with multiple themes.
+A sophisticated, web-based platform designed to manage multiple, simultaneous AI agent sessions within an extensible "Digital Office" framework. Architected with Python, Flask, and HTMX, it enables high-fidelity collaboration between specialized AI personas (Project Managers, Developers, Researchers) using a shared Project Journal and advanced tool integration.
 
-The application is architected to be provider-agnostic, allowing users to connect to different AI APIs like Google Gemini, Ollama, and OpenRouter within the same session manager.
+The application is provider-agnostic, seamlessly connecting to Google Gemini, Ollama, and OpenRouter to power an autonomous agent team.
 
-## Key Features
+## Key Architecture
 
-*   **Multi-Instance Management:** Open, close, rename, and manage multiple chat sessions in a clean, tabbed interface. Each session maintains its own isolated context, configuration, and toolset.
-*   **Provider Agnostic:** Ships with clients for Google, Ollama, and OpenRouter. The modular design in `api_clients/` makes it straightforward to extend support to other AI API providers.
-*   **Secure Python-Native File Tools:** A suite of file system tools (create, delete, move) that are **OS-agnostic** and secure by design. They utilize strict path validation logic within Python to ensure operations are confined to the active project workspace (`CODEBASE_DB_PATH`), preventing access to system files on Linux, macOS, and Windows without requiring complex OS-level sandboxes.
-*   **Project Root Switching:** Change the active target workspace directory dynamically from the UI without restarting the application. This allows you to seamless switch between working on different projects.
-*   **Database Builder:** Initialize or refresh the `project_context.db` knowledge graph directly from the UI. This powers the code analysis tools and ensures the AI has the latest view of your project structure.
-*   **Dynamic Tool System:**
-    *   **Discovery:** Automatically discovers Python tool modules from the `my_tools/` directory.
-    *   **Inspection:** Scans modules to view available functions, their signatures, and docstrings directly in the UI.
-    *   **Registration:** Register or unregister specific functions for use by a chat instance on the fly.
-*   **Full Context Control:** A powerful context editor allows users to view, edit, or delete any message within a chat's history.
-*   **Dynamic UI with HTMX:** The entire frontend is built using HTMX, creating a responsive, single-page application feel without the complexity of a large JavaScript framework.
-*   **Theming Engine:** Switch between multiple themes (`hotseat`, `80s_theme`, `zen_gardens`) instantly.
-*   **Markdown & Code Formatting:** Renders Markdown and provides syntax highlighting in real-time as the AI streams its response. Includes a reliable "copy to clipboard" button for code blocks.
-*   **File Uploads:** Attach files to messages for the AI to use.
+### 1. The Autonomous Agent Task Force System (AATFS)
+The core of the interface is the **AATFS**, a "headless office" philosophy where specialized agents collaborate on complex projects.
+-   **Persona System**: Over 20+ specialized AI personas (Architect, PM, Developer, Security Expert) with unique system prompts and toolsets.
+-   **Shared Project Journal**: A centralized source of truth where agents store research, drafts, and technical specs.
+-   **Diagnostic Loop**: An autonomous error-correction workflow where the Project Manager triages Auditor feedback to re-delegate fixes.
+
+### 2. Secure, Cross-Platform Tooling
+A powerful suite of Python-native tools designed for safe project manipulation:
+-   **Jailed File Manager**: OS-agnostic file operations (create, delete, move) with strict path validation to confine agents to the workspace.
+-   **Codebase Explorer**: Built-in SQLite database parser (`build_code_db.py`) and vector search (`tool_vdb`) for structural and semantic code analysis.
+-   **Multi-Language Analysis**: Specialized tools for linting, security scanning, and structural analysis of Python, JS, HTML, and CSS.
+
+### 3. Dynamic HTMX Frontend
+A responsive, single-page experience without the overhead of heavy JavaScript frameworks:
+-   **Multi-Instance Tabs**: Manage multiple, isolated chat sessions simultaneously.
+-   **Live Context Editor**: View, edit, or remove any message in the chat history for granular context control.
+-   **Theming Engine**: Instant switching between themes (e.g., Hotseat, 80s Theme, Zen Gardens).
 
 ## Tech Stack
 
-*   **Backend:** Python 3, Flask, Waitress (as a production-ready WSGI server)
-*   **Frontend:** HTML5, Tailwind CSS, JavaScript, HTMX, htmx-ext (for SSE), HyperScript
-*   **API Clients:** `google-genai`, `requests`
-*   **Core Python Dependencies:**
-    *   `flask`, `waitress`
-    *   `python-dotenv`
-    *   `requests`, `requests-cache`, `retry-requests`
-    *   `google-generativeai`, `openai`
-    *   `markdown`, `pymdownx-superfences`, `bleach`
-    *   `bs4` (Beautiful Soup) & `esprima` (For HTML/JS parsing)
-    *   `geopy`, `pandas`, `openmeteo-requests`
+-   **Backend**: Python 3.10+, Flask, Waitress
+-   **Frontend**: HTML5, Tailwind CSS, HTMX, Hyperscript
+-   **AI Providers**: `google-genai`, `ollama`, `openrouter`
+-   **Code Analysis**: `beautifulsoup4`, `lxml`, `esprima`
+-   **Specialized Tooling**: `ruff`, `bandit`, `safety`, `gitpython`, `tavily-python`
 
 ## Project Structure
 
 ```
 .
-├── api_clients/        # Handles connections to external AI providers.
-├── chat_logs/          # Stores chat history logs.
-├── chat_sessions/      # Saved session data (JSON).
-├── my_tools/           # Directory for custom, user-defined Python tools.
-│   ├── jailed_file_manager.py  # Cross-platform secure file system tools.
-│   └── SafeExecutor.ps1      # (Legacy/Windows-Only) PowerShell security gate.
-├── static/             # Compiled CSS, JavaScript, and assets.
-├── templates/          # Flask HTML templates (Jinja2).
-├── tool_vdb/           # Vector database for semantic tool searching.
-├── .env                # Environment variables (API keys, secrets).
-├── app.py              # Main Flask application.
-├── chat_instance.py    # Represents a single chat session state.
-├── chat_manager.py     # Manages all active chat instances.
-├── tool_management.py  # Discovers and loads tools dynamically.
-├── run_waitress.py     # Production entry point.
-├── utils.py            # Utility functions.
-├── run_app_as_jea_user.bat # (Legacy/Windows-Only) Secure sandbox launcher.
-└── SETUP.md            # Setup guide.
+├── api_clients/        # Provider-agnostic AI API connectors.
+├── my_tools/           # Extensible Python tool library for AI agents.
+│   ├── README(my_tools)/ # Detailed documentation for each tool.
+│   └── jailed_file_manager.py # OS-agnostic secure file operations.
+├── personas/           # JSON-defined AI agent identities and toolsets.
+├── static/             # Compiled Tailwind CSS and JavaScript assets.
+├── templates/          # Jinja2 HTML templates for the HTMX UI.
+├── tool_vdb/           # Vector database for semantic tool discovery.
+├── app.py              # Main Flask application and server logic.
+├── chat_instance.py    # Isolated state management for each chat session.
+├── project_config.json # Global workspace and provider configuration.
+└── AATFS_GUIDE.md      # Deep-dive into the Autonomous Agent workflow.
 ```
 
 ## Setup and Installation
 
-### System Requirements
-*   **Cross-Platform:** Works on Windows, Linux, and macOS.
-*   Python 3.10+.
+### 1. Install Dependencies
+```bash
+# Python (Virtual Environment recommended)
+pip install -r requirements.txt
 
-### Installation Steps
+# Node.js (For Tailwind CSS)
+npm install
+npm run build:css
+```
 
-1.  **Clone the Repository:**
-    ```bash
-    git clone <repository-url>
-    cd <repository-directory>
-    ```
+### 2. Configure Environment
+Create a `.env` file in the root directory:
+```ini
+FLASK_SECRET_KEY='your_secret_key'
+GOOGLE_API_KEY='your_api_key'
+TAVILY_API_KEY='your_search_key'
+```
 
-2.  **Create a Virtual Environment:**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
-    ```
+### 3. Launch the Office
+```bash
+# Production Mode (Waitress)
+python run_waitress.py
 
-3.  **Install Python Dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+# Development Mode (Flask)
+flask run --debug
+```
+Access the application at `http://127.0.0.1:8080`.
 
-4.  **Install Frontend Dependencies:**
-    ```bash
-    npm install
-    ```
+## Documentation
 
-5.  **Configure Environment Variables:**
-    Create a `.env` file in the project root.
-    ```
-    FLASK_SECRET_KEY='a_very_secret_key'
-    GOOGLE_API_KEY='your_google_api_key_here'
-    OPENROUTER_API_KEY='your_key_here'
-    # Required for code analysis tools
-    CODEBASE_DB_PATH='/absolute/path/to/your/project'
-    ```
-
-6.  **Build CSS:**
-    ```bash
-    npm run build:css
-    ```
-
-7.  **Run the Application:**
-    
-    For development:
-    ```bash
-    flask run --debug
-    ```
-    
-    For production (recommended):
-    ```bash
-    python run_waitress.py
-    ```
-    The application will be available at `http://127.0.0.1:8080` (Waitress) or `http://127.0.0.1:5000` (Flask).
-
-### Optional: Legacy Windows Sandbox
-If you are on Windows and explicitly require the deprecated JEA (Just Enough Administration) sandbox for shell execution, refer to `SETUP.md` for the original `run_app_as_jea_user.bat` workflow. Note that the core file manager tools no longer require this.
-
-## Usage Guide
-
-*   **Project Context:** Use the "Project Root" input at the top of the page to point the tools to the directory you want to work on. Click "Set" to confirm.
-*   **Build Database:** Click "Build DB" to scan the selected project and create the searchable context database. This is required for tools like "Project Explorer" or "Search Code".
-*   **Creating a Chat:** Select a provider from the dropdown and click "+ New Chat".
-*   **Tool System:** Use the "Tools" (wrench icon) panel to discover and register Python functions from `my_tools` as usable tools for your chat session.
+-   **[AATFS_GUIDE.md](AATFS_GUIDE.md)**: Understanding the Digital Office and Diagnostic Loop protocols.
+-   **[my_tools/README(my_tools)/](my_tools/README(my_tools)/)**: Detailed documentation for the agent tool library.
+-   **[personas/persona_guide.md](personas/persona_guide.md)**: How to create and manage specialized AI agents.
+-   **[setup.md](setup.md)**: Detailed cross-platform installation instructions.

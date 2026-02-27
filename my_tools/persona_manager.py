@@ -13,14 +13,19 @@ from my_tools.jailed_file_manager import jailed_delete_file
 def _get_app_root_personas_dir() -> str:
     """
     (Internal) Resolves the 'personas' directory relative to this script.
-    This ensures we look in the Application's 'personas' folder, 
-    not the Target Project's folder.
     """
-    # This script is in APP_ROOT/my_tools/persona_manager.py
-    # We want APP_ROOT/personas
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    app_root = os.path.dirname(current_dir) # Go up one level to APP_ROOT
+    app_root = os.path.dirname(current_dir)
     return os.path.join(app_root, 'personas')
+
+def _get_workspace_personas_dir() -> str | None:
+    """
+    (Internal) Resolves the 'personas' directory within the current target project.
+    """
+    project_root = _get_project_root()
+    if not project_root:
+        return None
+    return os.path.join(project_root, 'personas')
 
 def _get_persona_path(persona_name: str) -> Dict[str, Any]:
     """
@@ -40,90 +45,138 @@ def _get_persona_path(persona_name: str) -> Dict[str, Any]:
     
     return {"status": "success", "path": full_path, "relative_path": os.path.join('personas', sanitized_name)}
 
-# --- Public Tool Functions ---
-
 def list_personas() -> str:
     """
-    (Low-Cost) Lists all available personas in the 'personas' directory.
+    (Low-Cost) Lists all available personas from both the central library and the local workspace.
     
     Returns:
-        str: A JSON string containing a list of persona names.
+        str: A JSON string containing a list of unique persona names.
     """
-    personas_dir = _get_app_root_personas_dir()
+    all_personas = set()
     
-    if not os.path.isdir(personas_dir):
-        # Create it if it doesn't exist (internal app dir)
+    # 1. Check App Root (The Bank)
+    app_dir = _get_app_root_personas_dir()
+    if os.path.isdir(app_dir):
         try:
-            os.makedirs(personas_dir, exist_ok=True)
-        except:
-            return json.dumps({"status": "success", "personas": []}, indent=2)
+            for f in os.listdir(app_dir):
+                if f.endswith('.json'):
+                    all_personas.add(f.replace('.json', ''))
+        except OSError: pass
+
+    # 2. Check Workspace (The Office)
+    workspace_dir = _get_workspace_personas_dir()
+    if workspace_dir and os.path.isdir(workspace_dir):
+        try:
+            for f in os.listdir(workspace_dir):
+                if f.endswith('.json'):
+                    all_personas.add(f.replace('.json', ''))
+        except OSError: pass
     
-    try:
-        persona_files = [f.replace('.json', '') for f in os.listdir(personas_dir) if f.endswith('.json')]
-        return json.dumps({"status": "success", "personas": persona_files}, indent=2)
-    except OSError as e:
-        return json.dumps({"status": "error", "message": f"Failed to list personas: {e}"}, indent=2)
+    return json.dumps({
+        "status": "success", 
+        "personas": sorted(list(all_personas))
+    }, indent=2)
 
 def get_persona_details(persona_name: str) -> str:
     """
     Reads the JSON configuration file for a given persona.
+    Checks the workspace first, then falls back to the central repository.
 
-    @param persona_name (string): The name of the persona to read (e.g., "Project Manager"). Required.
+    @param persona_name (string): The name of the persona to read. Required.
     @return (string): A JSON string of the persona's configuration, or an error JSON if not found.
     """
-    PERSONAS_DIR = _get_app_root_personas_dir()
-    try:
-        # Sanitize name to create a safe filename
-        safe_filename = persona_name.replace(" ", "_") + ".json"
-        filepath = os.path.join(PERSONAS_DIR, safe_filename)
+    # 1. Try Workspace First
+    workspace_dir = _get_workspace_personas_dir()
+    filename = f"{persona_name}.json"
+    
+    if workspace_dir:
+        workspace_path = os.path.join(workspace_dir, filename)
+        if os.path.exists(workspace_path):
+            try:
+                with open(workspace_path, 'r', encoding='utf-8') as f:
+                    return json.dumps(json.load(f))
+            except Exception as e:
+                logger.error(f"Error reading workspace persona: {e}")
 
-        if not os.path.exists(filepath):
-            # Try with original name as filename for backward compatibility
-            filepath_alt = os.path.join(PERSONAS_DIR, persona_name + ".json")
-            if not os.path.exists(filepath_alt):
-                 return json.dumps({"status": "error", "message": f"Persona file for '{persona_name}' not found."})
-            filepath = filepath_alt
+    # 2. Fallback to App Root
+    app_dir = _get_app_root_personas_dir()
+    app_path = os.path.join(app_dir, filename)
+    
+    if os.path.exists(app_path):
+        try:
+            with open(app_path, 'r', encoding='utf-8') as f:
+                return json.dumps(json.load(f))
+        except Exception as e:
+            return json.dumps({"status": "error", "message": f"Error reading central persona: {e}"})
 
-        with open(filepath, 'r', encoding='utf-8') as f:
-            details = json.load(f)
-        return json.dumps(details) # Return as a JSON string for consistency
-    except Exception as e:
-        return json.dumps({"status": "error", "message": f"Error reading persona file: {e}"})
+    return json.dumps({"status": "error", "message": f"Persona '{persona_name}' not found."})
 
-def create_persona(persona_name: str, persona_data: str) -> str:
+def deploy_agent(persona_name: str) -> str:
     """
-    (Medium-Cost) Safely creates a new persona file with the given data.
-    This tool creates a .json file in the 'personas' directory. It will not
-    overwrite an existing persona file. On success, it registers the new
-    file in the project database.
+    (Medium-Cost) Copies a specialist persona from the central repository to the current office workspace.
+    Use this during office setup to ensure the project is self-contained.
+
+    @param persona_name (string): The name of the persona to deploy (e.g., "Writer", "Project Manager"). REQUIRED.
+    """
+    import shutil
+    
+    app_dir = _get_app_root_personas_dir()
+    workspace_dir = _get_workspace_personas_dir()
+    
+    if not workspace_dir:
+        return json.dumps({"status": "error", "message": "No workspace configured. Use setup_digital_office_structure first."})
+    
+    os.makedirs(workspace_dir, exist_ok=True)
+    
+    safe_filename = persona_name.replace(" ", "_") + ".json"
+    src_path = os.path.join(app_dir, safe_filename)
+    dest_path = os.path.join(workspace_dir, safe_filename)
+    
+    if not os.path.exists(src_path):
+        # Alt check
+        src_path = os.path.join(app_dir, persona_name + ".json")
+        if not os.path.exists(src_path):
+            return json.dumps({"status": "error", "message": f"Source persona '{persona_name}' not found in central repository."})
+            
+    try:
+        shutil.copy2(src_path, dest_path)
+        return json.dumps({"status": "success", "message": f"Agent '{persona_name}' deployed to workspace personas/ folder."})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Deployment failed: {e}"})
+
+def create_persona(persona_name: str, persona_data: str, overwrite: bool = False) -> str:
+    """
+    (Medium-Cost) Safely creates and 'hires' a new persona for the office.
+    Saves the persona to the local project workspace.
 
     @param persona_name (string): The name for the new persona (e.g., "Python_Developer"). REQUIRED.
     @param persona_data (string): A valid JSON string representing the persona's configuration. REQUIRED.
-    
-    Returns:
-        string: A JSON string with the status of the operation.
+    @param overwrite (boolean): If True, will overwrite an existing persona of the same name. Defaults to False.
     """
-    path_result = _get_persona_path(persona_name)
-    if path_result["status"] == "error":
-        return json.dumps(path_result, indent=2)
+    # 1. Determine destination (Workspace preferred)
+    target_dir = _get_workspace_personas_dir() or _get_app_root_personas_dir()
     
-    full_path = path_result["path"]
-    
-    if os.path.exists(full_path):
-        return json.dumps({'status': 'error', 'message': f'Persona "{persona_name}" already exists.'})
+    # 2. Construct path
+    sanitized_name = os.path.basename(f"{persona_name}.json")
+    full_path = os.path.join(target_dir, sanitized_name)
+
+    if os.path.exists(full_path) and not overwrite:
+        return json.dumps({'status': 'error', 'message': f'Persona "{persona_name}" already exists. Set overwrite=True to update it.'})
 
     try:
         content = json.loads(persona_data)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         with open(full_path, 'w', encoding='utf-8') as f:
             json.dump(content, f, indent=2)
+        
+        return json.dumps({
+            'status': 'success', 
+            'message': f"Persona '{persona_name}' created and hired into the workspace."
+        })
     except json.JSONDecodeError:
         return json.dumps({'status': 'error', 'message': 'Invalid JSON string provided for persona_data.'})
     except Exception as e:
-        return json.dumps({'status': 'error', 'message': f'An unexpected error occurred during file write: {e}'})
-
-    # Note: We no longer sync to project DB because personas are internal to the App, not the Target Project.
-    return json.dumps({'status': 'success', 'message': f"Successfully created persona '{persona_name}'."})
+        return json.dumps({'status': 'error', 'message': f'An unexpected error occurred: {e}'})
 
 
 def instantiate_persona(persona_name: str, chat_manager_instance) -> tuple:

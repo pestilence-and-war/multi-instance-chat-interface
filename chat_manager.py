@@ -72,7 +72,6 @@ class ChatManager:
         instance = self.instances.pop(instance_id, None)
         if instance:
             instance.stop_generation()
-            instance.save_edit_log()
             print(f"Removed instance: {instance_id}")
         return instance is not None
 

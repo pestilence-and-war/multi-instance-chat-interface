@@ -112,6 +112,48 @@ def get_current_project_root() -> str:
     except Exception as e:
         return json.dumps({"status": "error", "message": f"Failed to get project root: {e}"})
 
+def list_available_tools() -> str:
+    """
+    (Low-Cost) Returns a list of all tools available in the system library.
+    Each tool includes a name and a brief description of its purpose.
+    Use this to identify which tools to assign to a new persona.
+    """
+    import inspect
+    import importlib
+    import os
+    
+    tools_list = []
+    directory = "my_tools"
+    
+    if not os.path.exists(directory):
+        return json.dumps({"status": "error", "message": f"Directory '{directory}' not found."})
+
+    for filename in os.listdir(directory):
+        if filename.endswith(".py") and not filename.startswith("__"):
+            module_name = filename[:-3]
+            module_path = f"{directory}.{module_name}"
+            try:
+                module = importlib.import_module(module_path)
+                for name, func in inspect.getmembers(module, inspect.isfunction):
+                    # Filter for public functions defined in this module
+                    if not name.startswith('_') and func.__module__ == module.__name__:
+                        doc = inspect.getdoc(func)
+                        description = doc.split('\n')[0] if doc else "No description available."
+                        tools_list.append({
+                            "name": name,
+                            "description": description,
+                            "module": module_path
+                        })
+            except Exception as e:
+                # Skip modules that fail to import (e.g. missing dependencies)
+                continue
+
+    return json.dumps({
+        "status": "success",
+        "total_tools": len(tools_list),
+        "available_tools": tools_list
+    }, indent=2)
+
 if __name__ == '__main__':
     print("--- Testing ProjectExplorer Tool ---")
     # The environment variable is the single source of truth for the DB path.

@@ -133,6 +133,14 @@ class OllamaClient(BaseApiClient):
 
         # Prepare API messages, including tool role and assistant tool_calls
         api_messages = []
+
+        # --- NEW: Tool Silence Instruction ---
+        if self.tool_schemas:
+            api_messages.append({
+                "role": "system",
+                "content": "STRICT RULE: You are in tool-calling mode. Output ONLY the necessary tool calls. Do NOT provide an internal monologue, explanations, or conversational filler. Your entire output should be the tool call sequence or the final JSON."
+            })
+
         for msg in messages:
 
             role = msg.get("role")

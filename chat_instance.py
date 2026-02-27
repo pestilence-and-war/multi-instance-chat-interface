@@ -36,7 +36,7 @@ class ChatInstance:
         self.system_prompt = ""
         self.chat_history = []
         self.edit_log = []
-        self.generation_params = {"temperature": 0.7, "top_p": 0.95}
+        self.generation_params = {"temperature": 0.7, "top_p": 0.95, "max_turns": 30}
         
         # Threading
         self.current_generation_thread = None
@@ -145,7 +145,7 @@ class ChatInstance:
             return self.api_client.get_available_models()
         return []
 
-    def set_config(self, model=None, system_prompt=None, temp=None, top_p=None):
+    def set_config(self, model=None, system_prompt=None, temp=None, top_p=None, max_turns=None):
         if model is not None: self.selected_model = model
         if system_prompt is not None: self.system_prompt = system_prompt
         if temp is not None: 
@@ -154,12 +154,71 @@ class ChatInstance:
         if top_p is not None: 
             try: self.generation_params['top_p'] = float(top_p)
             except: pass
+        if max_turns is not None:
+            try: self.generation_params['max_turns'] = int(max_turns)
+            except: pass
 
     def update_last_used(self):
         """Updates the last_used timestamp. Fixes the AttributeError crash."""
         self.last_used = time.time()
 
     # --- Generation Logic ---
+
+    def execute_headless_turn(self, prompt):
+        """
+        Executes a blocking turn for the event monitor or other headless agents.
+        Returns a dict: {'status': 'success'|'failure', 'content': ...}
+        """
+        if self.is_generating:
+            return {'status': 'failure', 'content': 'Busy generating'}
+
+        # 1. Add User Message
+        msg = {
+            "role": "user", 
+            "content": prompt, 
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        self.chat_history.append(msg)
+        
+        # 2. Start Generation (threaded)
+        import queue
+        q = queue.Queue()
+        self.start_streaming_generation(q)
+        
+        # 3. Block and Wait
+        final_content = ""
+        status = "success"
+        
+        try:
+            while True:
+                item = q.get()
+                if item is None: break
+                
+                # Parse if it's a JSON string (it should be)
+                if isinstance(item, str) and item.startswith('{'):
+                     data = json.loads(item)
+                     msg_type = data.get('type')
+                     content = data.get('content')
+                     
+                     if msg_type == 'chunk':
+                         # We can accumulate or just wait for the final 'finish'
+                         pass 
+                     elif msg_type == 'finish':
+                         # This is the final content from the loop
+                         status = "success"
+                         final_content = content 
+                     elif msg_type == 'error':
+                         status = "failure"
+                         final_content = content
+                     elif msg_type == 'stopped':
+                         status = "failure"
+                         final_content = "Stopped."
+                
+        except Exception as e:
+            status = "failure"
+            final_content = str(e)
+            
+        return {'status': status, 'content': final_content}
 
     def start_streaming_generation(self, queue):
         if self.is_generating: return
@@ -188,13 +247,19 @@ class ChatInstance:
         return msgs
 
     def _run_generation_in_thread(self, current_messages, config):
-        max_cycles = 15
+        max_cycles = config.get("max_turns", 30)
         cycles = 0
         final_type = "finish"
         final_content = ""
 
+        # Import for incremental saving
+        from chat_manager import chat_manager
+
         try:
-            while cycles < max_cycles:
+            while True:
+                if max_cycles > 0 and cycles >= max_cycles:
+                    break
+
                 cycles += 1
                 if self.stop_event.is_set(): 
                     final_type = "stopped"
@@ -234,6 +299,10 @@ class ChatInstance:
                     if thought_buffer:
                         msg["thoughts"] = thought_buffer
                     current_messages.append(msg)
+                    
+                    # Commit final state
+                    self.chat_history = current_messages
+                    chat_manager.save_instance_state(self.instance_id)
                     break # Conversation Turn Complete
                 
                 # -- Tool Execution --
@@ -254,7 +323,10 @@ class ChatInstance:
 
                 # 2. Execute and Append Results
                 for call in tool_calls:
+                    print(f"DEBUG: Executing Tool: {call['name']} with args: {call['arguments']}")
                     result = self._execute_tool_safe(call["name"], call["arguments"])
+                    print(f"DEBUG: Tool Result: {str(result)[:200]}...")
+                    
                     current_messages.append({
                         "role": "tool",
                         "tool_call_id": call["id"],
@@ -265,6 +337,11 @@ class ChatInstance:
                         "type": "tool_result", 
                         "content": {"name": call["name"], "result_preview": str(result)[:100]+"..."}
                     }))
+                
+                # --- INCREMENTAL SAVE ---
+                # Save progress after tool execution so work is not lost if next turn fails
+                self.chat_history = current_messages
+                chat_manager.save_instance_state(self.instance_id)
 
         except Exception as e:
             final_type = "error"
@@ -273,14 +350,13 @@ class ChatInstance:
 
         finally:
             self.is_generating = False
-            if final_type != "error":
-                self.chat_history = current_messages # Commit history
+            # History is already saved incrementally. 
+            # If we errored, we keep what we had.
             
             self.sse_queue.put(json.dumps({"type": final_type, "content": final_content}))
             self.sse_queue.put(None)
             
-            # Auto-save
-            from chat_manager import chat_manager
+            # Final save check
             chat_manager.save_instance_state(self.instance_id)
 
     def _execute_tool_safe(self, name, args):
@@ -294,6 +370,17 @@ class ChatInstance:
             func = self.tool_manager.get_tool(name)
             if not func:
                 return f"Error: Tool {name} not found."
+            
+            # --- NEW: Context Inheritance ---
+            # If the tool function accepts an 'instance' argument, pass 'self'.
+            # This allows tools to know about the current chat instance (and its model/provider).
+            import inspect
+            sig = inspect.signature(func)
+            if 'instance' in sig.parameters:
+                # Remove 'instance' from args if the LLM hallucinated it
+                # to avoid "multiple values for keyword argument" errors
+                args.pop('instance', None)
+                return str(func(instance=self, **args))
             
             return str(func(**args))
         except Exception as e:
