@@ -37,7 +37,7 @@ class ChatManager:
         }
         self.telemetry_buffer.append(event)
 
-    def create_instance(self, provider_name=None, api_key=None):
+    def create_instance(self, provider_name=None, api_key=None, caller="User"):
         provider_name = provider_name or DEFAULT_PROVIDER
         client_class = API_CLIENT_CLASSES.get(provider_name)
 
@@ -54,7 +54,7 @@ class ChatManager:
                   # Allow creating instance without connection? Or fail? Let's allow for now.
                   # return None # Fail if key is absolutely required immediately
 
-        instance = ChatInstance(api_client_class=client_class, api_key=api_key)
+        instance = ChatInstance(api_client_class=client_class, api_key=api_key, caller=caller)
         self.instances[instance.instance_id] = instance
         print(f"Created instance: {instance.instance_id} with {provider_name if instance.api_client else 'NO Connection'}")
         return instance
@@ -64,15 +64,15 @@ class ChatManager:
     
     def get_all_instances_sorted(self) -> list[ChatInstance]:
         """
-        Returns a list of all chat instances, sorted by last_used time descending.
+        Returns a list of all chat instances, sorted by created_at time descending.
         """
         if not self.instances:
             return []
         
-        # Sort the dictionary items by the 'last_used' attribute of the ChatInstance object
+        # Sort by 'created_at' if it exists, otherwise fallback to last_used
         sorted_instances = sorted(
             self.instances.values(), 
-            key=lambda instance: instance.last_used, 
+            key=lambda instance: getattr(instance, 'created_at', instance.last_used), 
             reverse=True
         )
         return sorted_instances

@@ -72,22 +72,43 @@
                     {% endif %}
                 </select>
             </div>
-            {# --- NEW: Persona Selection --- #}
+            {# --- NEW: Persona Selection & Designer --- #}
             <div>
                 <label for="persona-{{ instance.instance_id }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Apply Persona</label>
-                <select name="persona_name" id="persona-{{ instance.instance_id }}"
-                        {# Trigger persona application on change #}
-                        hx-post="{{ url_for('apply_persona', instance_id=instance.instance_id) }}"
-                        hx-trigger="change"
-                        hx-target="#chat-instance-{{ instance.instance_id }}"
-                        hx-swap="outerHTML"
-                        hx-indicator="#loading-indicator"
-                        class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200">
-                    <option value="">-- Select Persona --</option>
-                    {% for p in available_personas %}
-                        <option value="{{ p }}">{{ p }}</option>
-                    {% endfor %}
-                </select>
+                <div class="flex gap-2">
+                    <select name="persona_name" id="persona-{{ instance.instance_id }}"
+                            {# Trigger persona application on change #}
+                            hx-post="{{ url_for('apply_persona', instance_id=instance.instance_id) }}"
+                            hx-trigger="change"
+                            hx-target="#chat-instance-{{ instance.instance_id }}"
+                            hx-swap="outerHTML"
+                            hx-indicator="#loading-indicator"
+                            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200">
+                        <option value="">-- Select Persona --</option>
+                        {% for p in available_personas %}
+                            <option value="{{ p }}">{{ p }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                {# Persona Designer (Inline) #}
+                <div class="mt-4 p-3 border rounded-md bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+                    <label class="block text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">Persona Designer</label>
+                    <div class="space-y-2">
+                        <input type="text" name="new_persona_name" placeholder="New Persona Name..." 
+                               class="block w-full px-3 py-1.5 text-sm border-gray-300 rounded-md dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200 focus:ring-indigo-500">
+                        <input type="text" name="new_persona_competency" placeholder="Competency / Description..." 
+                               class="block w-full px-3 py-1.5 text-sm border-gray-300 rounded-md dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200 focus:ring-indigo-500">
+                        <button type="button"
+                                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded text-xs focus:outline-none focus:shadow-outline transition-colors"
+                                hx-post="{{ url_for('save_persona', instance_id=instance.instance_id) }}"
+                                hx-include="#config-form-{{ instance.instance_id }}"
+                                hx-target="#status-{{ instance.instance_id }}"
+                                hx-swap="outerHTML">
+                            Save Configuration as Persona
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 

@@ -15,9 +15,10 @@ from tool_management import ToolManager
 from utils import send_text_to_audio_server
 
 class ChatInstance:
-    def __init__(self, instance_id=None, api_client_class=None, api_key=None, name=None):
-        self.instance_id = instance_id or str(uuid.uuid4())
-        self.name = name or f"Chat-{self.instance_id[:4]}"
+    def __init__(self, instance_id=None, api_client_class=None, api_key=None, name=None, caller="User"):
+        self.instance_id = instance_id or f"{caller}_{str(uuid.uuid4()).split('-')[0]}"
+        self.name = name or f"Chat-{self.instance_id.split('_')[-1][:4]}"
+        self.created_at = time.time()
         
         # Core Components
         self.tool_manager = ToolManager()
@@ -426,6 +427,7 @@ class ChatInstance:
         return {
             "instance_id": self.instance_id,
             "name": self.name,
+            "created_at": self.created_at,
             "last_used": self.last_used,
             "api_client_class_name": self.api_client_class_name,
             "selected_model": self.selected_model,
@@ -443,6 +445,7 @@ class ChatInstance:
         # Restore simple properties
         inst.selected_model = state.get("selected_model", "")
         inst.last_used = state.get("last_used", time.time())
+        inst.created_at = state.get("created_at", inst.last_used)
         inst.system_prompt = state.get("system_prompt", "")
         inst.chat_history = state.get("chat_history", [])
         inst.generation_params = state.get("generation_params", {})

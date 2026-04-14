@@ -117,8 +117,25 @@ def set_project_root():
 def build_project_db():
     target_root = os.environ.get("CODEBASE_DB_PATH", os.getcwd())
     app_dir = os.path.dirname(os.path.abspath(__file__))
-    script_path = os.path.join(app_dir, 'build_code_db.py')
     
+    # --- Step 1: Ensure venv exists ---
+    venv_script = os.path.join(app_dir, 'venv_setup.py')
+    print(f"Ensuring venv for {target_root} using {venv_script}...")
+    try:
+        venv_result = subprocess.run(
+            [sys.executable, venv_script, target_root],
+            cwd=app_dir,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print("Venv Setup Output:", venv_result.stdout)
+    except Exception as e:
+        print(f"Warning: Venv setup failed: {e}")
+        # We continue anyway, but the build might fail or use global python
+
+    # --- Step 2: Build Database ---
+    script_path = os.path.join(app_dir, 'build_code_db.py')
     print(f"Building DB for {target_root} using {script_path}...")
     
     # Release any existing locks
@@ -194,7 +211,7 @@ def new_chat():
     api_key = request.form.get('api_key')
 
     print(f"Creating new chat with provider: {provider}")
-    instance = chat_manager.create_instance(provider_name=provider, api_key=api_key)
+    instance = chat_manager.create_instance(provider_name=provider, api_key=api_key, caller="User")
 
     if not instance:
         error_msg = "Failed to create instance. Check provider/key settings."
@@ -470,6 +487,96 @@ def save_edited_context(instance_id):
     instance.chat_history = edited_history
     chat_manager.save_instance_state(instance)
     return render_template('partials/status_update.html', message="Context edited and saved.", instance_id=instance_id)
+
+@app.route('/chat/<instance_id>/save_persona', methods=['POST'])
+def save_persona(instance_id):
+    instance = chat_manager.get_instance(instance_id)
+    if not instance: return "Not Found", 404
+    
+    data = request.form
+    persona_name = data.get('new_persona_name')
+    competency = data.get('new_persona_competency') or "Custom created persona."
+    
+    if not persona_name:
+        return render_template('partials/status_update.html', instance_id=instance_id, message="Persona name is required.", is_error=True)
+
+    try:
+        # 1. Prepare Persona Data
+        system_prompt = data.get('system_prompt') or instance.system_prompt
+        model = data.get('model') or instance.selected_model
+        # Get provider from instance
+        provider = instance.api_client_class_name.replace('Client', '') if instance.api_client_class_name else DEFAULT_PROVIDER
+        
+        # Get params, ensuring types are correct
+        try:
+            temp = float(data.get('temperature', 0.7))
+            top_p = float(data.get('top_p', 0.95))
+            thinking = data.get('thinking', 'off') == 'on'
+        except (ValueError, TypeError):
+            temp, top_p, thinking = 0.7, 0.95, True
+
+        # Get currently registered tools
+        tools = list(instance.tool_manager.registered_tools.keys())
+
+        persona_dict = {
+            "persona_name": persona_name,
+            "model_config": {
+                "provider": provider,
+                "model_name": model,
+                "generation_params": {
+                    "temperature": temp,
+                    "top_p": top_p,
+                    "thinking": thinking
+                }
+            },
+            "system_prompt": system_prompt,
+            "tools": tools
+        }
+
+        # 2. Save Persona File using persona_manager
+        from my_tools import persona_manager
+        result_json = persona_manager.create_persona(persona_name, json.dumps(persona_dict), overwrite=True)
+        result = json.loads(result_json)
+        
+        if result.get('status') == 'error':
+            return render_template('partials/status_update.html', instance_id=instance_id, message=f"Save Error: {result.get('message')}", is_error=True)
+
+        # 3. Update role_registry.json
+        app_root = os.path.dirname(os.path.abspath(__file__))
+        registry_path = os.path.join(app_root, 'personas', 'role_registry.json')
+        
+        if os.path.exists(registry_path):
+            with open(registry_path, 'r', encoding='utf-8') as f:
+                registry = json.load(f)
+            
+            # Check if already exists, if so update competency
+            roles = registry.get("roles", [])
+            found = False
+            for role in roles:
+                if role['name'] == persona_name:
+                    role['competency'] = competency
+                    role['tools'] = tools
+                    found = True
+                    break
+            
+            if not found:
+                roles.append({
+                    "name": persona_name,
+                    "file": f"{persona_name}.json",
+                    "competency": competency,
+                    "tools": tools
+                })
+            
+            registry['roles'] = roles
+            with open(registry_path, 'w', encoding='utf-8') as f:
+                json.dump(registry, f, indent=2)
+
+        return render_template('partials/status_update.html', instance_id=instance_id, message=f"Persona '{persona_name}' saved and registered.")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return render_template('partials/status_update.html', instance_id=instance_id, message=f"Unexpected Error: {e}", is_error=True)
 
 @app.route('/chat/<instance_id>/save', methods=['POST'])
 def save_chat_state(instance_id):

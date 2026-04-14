@@ -51,7 +51,8 @@ def delegate_task(persona_name: str, task_description: str, instance=None) -> st
              return json.dumps({"status": "error", "message": f"Specialist '{persona_name}' not found."})
 
         # 3. Create a temporary ChatInstance
-        spec_instance = chat_manager.create_instance(provider_name=provider_name)
+        caller = f"Delegated_by_{instance.name}" if instance else "Orchestrator"
+        spec_instance = chat_manager.create_instance(provider_name=provider_name, caller=caller)
         if not spec_instance:
             return json.dumps({"status": "error", "message": "Failed to create specialist instance."})
 
