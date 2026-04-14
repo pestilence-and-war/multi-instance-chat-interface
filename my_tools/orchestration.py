@@ -22,6 +22,12 @@ def delegate_task(persona_name: str, task_description: str, instance=None) -> st
     @param instance (object): INTERNAL. The calling ChatInstance. DO NOT provide this manually.
     """
     logger.info(f"Delegating task to '{persona_name}': {task_description[:100]}...")
+    
+    # --- GLOBAL TELEMETRY BROADCAST ---
+    try:
+        from chat_manager import chat_manager
+        chat_manager.broadcast_telemetry("ORCHESTRATOR", "status", f"Delegating task to {persona_name}...")
+    except: pass
 
     # 1. Inherit Model and Provider from parent if available
     # This prevents VRAM thrashing and "Model Not Found" errors by sticking to the user's selection.
@@ -75,16 +81,31 @@ def delegate_task(persona_name: str, task_description: str, instance=None) -> st
         result = spec_instance.execute_headless_turn(task_description)
 
         if result['status'] == 'success':
+            content = result['content']
+            # TRUNCATION FIX: Prevent PM context window blowout by truncating chatty specialists.
+            # The actual deliverables are safely in the journal/disk.
+            if len(content) > 500:
+                truncated_content = content[:500] + "\n\n... [OUTPUT TRUNCATED: Specialist's conversational output hidden. Check the Project Journal or File System for full deliverables.]"
+            else:
+                truncated_content = content
+
             return json.dumps({
                 "status": "success",
                 "specialist": persona_name,
-                "output": result['content']
+                "output_summary": truncated_content
             }, indent=2)
         else:
+            content = result['content']
+            # Truncate errors slightly less aggressively to preserve stack traces
+            if len(content) > 1000:
+                truncated_error = content[:1000] + "\n\n... [ERROR TRUNCATED]"
+            else:
+                truncated_error = content
+                
             return json.dumps({
                 "status": "error",
                 "specialist": persona_name,
-                "message": result['content']
+                "message": truncated_error
             }, indent=2)
 
     except Exception as e:
@@ -95,3 +116,34 @@ def delegate_task(persona_name: str, task_description: str, instance=None) -> st
     finally:
         if spec_instance:
             chat_manager.remove_instance(spec_instance.instance_id)
+
+def develop_project_strategy(objective: str, instance=None) -> str:
+    """
+    (High-Cost) Specialized tool that delegates to the 'Strategist' persona to create or update 
+    the 'Master_Plan' in the project journal. Use this at the start of a project or when 
+    a major change in direction is required.
+
+    @param objective (string): The current goal, milestone, or failure feedback that requires a strategic plan. REQUIRED.
+    @param instance (object): INTERNAL. The calling ChatInstance.
+    """
+    logger.info(f"Orchestrating strategic plan for: {objective[:100]}...")
+    
+    # Notify the user in the console
+    print(f"\n[SYSTEM: Orchestrating Strategic Plan with the Strategist specialist... This may take several minutes for large journals.]")
+
+    # Delegate to the Strategist specialist
+    # The Strategist's system prompt already instructs them to save to 'Master_Plan' in the journal.
+    prompt = f"Analyze the following objective and update the 'Master_Plan' in the journal: {objective}"
+    
+    res_str = delegate_task("Strategist", prompt, instance=instance)
+    try:
+        res = json.loads(res_str)
+        if res.get("status") == "success":
+            return json.dumps({
+                "status": "success",
+                "message": "The Strategist has analyzed the objective and updated the 'Master_Plan' in the project journal.",
+                "plan_preview": res.get("output", "")[:300] + "..."
+            }, indent=2)
+        return res_str
+    except:
+        return res_str

@@ -2,22 +2,41 @@ import json
 import re
 import os
 import math
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+
+from my_tools.codebase_manager import _CodebaseManager
+
+# NOTE: All read-only codebase analysis tools should query the 'project_context.db'
+# via the '_CodebaseManager' instead of accessing the filesystem directly.
 
 def analyze_seo_readability(file_path: str) -> str:
     """
-    Analyzes a Markdown or text file for SEO best practices and readability.
+    (Medium-Cost) Analyzes a Markdown or text file for SEO best practices and readability.
     Calculates keyword density, header structure, and Flesch Reading Ease.
 
-    @param file_path (string): Path to the Markdown or text file.
+    @param file_path (string): The path to the Markdown or text file to analyze. REQUIRED.
     """
-    if not os.path.exists(file_path):
-        return json.dumps({"status": "error", "message": f"File not found: {file_path}"})
+    if not file_path:
+        return json.dumps({"status": "error_missing_param", "message": "Missing 'file_path' parameter."})
+
+    manager = _CodebaseManager()
+    cursor = manager._execute_read_query("SELECT full_content, message, error FROM files WHERE path = ?", (file_path,))
+    
+    if not cursor:
+        return json.dumps({"status": "error_db_query", "message": "Database query failed."})
+
+    row = cursor.fetchone()
+    if not row:
+        return json.dumps({"status": "error_not_found", "message": f"File not found in database: {file_path}"})
+
+    content = row["full_content"]
+    if content is None:
+        message = row["message"] or "Content not available for this file."
+        if row["error"]:
+            message = f"Error state for file: {row['error']}"
+        return json.dumps({"status": "no_content", "message": message})
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
         # 1. Basic Stats
         words = re.findall(r'\w+', content.lower())
         word_count = len(words)

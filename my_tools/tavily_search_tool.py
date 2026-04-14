@@ -13,7 +13,8 @@ def tavily_search(
     max_results: int = 3,
     include_domains: Optional[List[str]] = None,
     exclude_domains: Optional[List[str]] = None,
-    topic: str = "general"
+    topic: str = "general",
+    include_raw_content: bool = False
 ) -> str:
     """
     Performs a search using the Tavily Search API and returns structured results.
@@ -29,6 +30,7 @@ def tavily_search(
     @param include_domains (List[string]): A list of specific domains to search within (e.g., ["wikipedia.org", "bbc.com"]). Optional. Default: None (search all domains).
     @param exclude_domains (List[string]): A list of specific domains to exclude from the search (e.g., ["pinterest.com"]). Optional. Default: None (no domains excluded).
     @param topic (string): The topic of the search, can be 'general', 'news', 'research_paper', 'code', etc. This helps Tavily focus the search. Optional. Default: 'general'. enum:general,news,finance,research_paper,code,sports
+    @param include_raw_content (boolean): Whether to include the raw HTML/text content of the search results. Use this for deep extraction. Optional. Default: False.
     """
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
     if not TAVILY_API_KEY:
@@ -37,7 +39,7 @@ def tavily_search(
             "status": "error_misconfigured"
         })
 
-    print(f"--- Tool: tavily_search called with query: '{query}', search_depth: '{search_depth}', include_answer: {include_answer}, max_results: {max_results} ---")
+    print(f"--- Tool: tavily_search called with query: '{query}', search_depth: '{search_depth}', include_answer: {include_answer}, max_results: {max_results}, include_raw_content: {include_raw_content} ---")
 
     if not TAVILY_API_KEY:
         return json.dumps({
@@ -57,8 +59,7 @@ def tavily_search(
         "include_answer": include_answer,
         "max_results": max(1, min(int(max_results), 7 if search_depth == "basic" else 10)), # Adhere to reasonable limits
         "topic": topic,
-        # Parameters that are False by default or handled by None checks
-        "include_raw_content": False,
+        "include_raw_content": include_raw_content,
         "include_images": False,
         "include_image_descriptions": False,
     }

@@ -43,6 +43,7 @@ class ChatInstance:
         self.stop_event = threading.Event()
         self.sse_queue = None
         self.is_generating = False
+        self._background_processes = {} # Track PID: subprocess.Popen objects
 
         # Build initial map for auto-discovery
         self.tool_manager.build_module_map()
@@ -145,7 +146,7 @@ class ChatInstance:
             return self.api_client.get_available_models()
         return []
 
-    def set_config(self, model=None, system_prompt=None, temp=None, top_p=None, max_turns=None):
+    def set_config(self, model=None, system_prompt=None, temp=None, top_p=None, max_turns=None, thinking=None):
         if model is not None: self.selected_model = model
         if system_prompt is not None: self.system_prompt = system_prompt
         if temp is not None: 
@@ -157,6 +158,8 @@ class ChatInstance:
         if max_turns is not None:
             try: self.generation_params['max_turns'] = int(max_turns)
             except: pass
+        if thinking is not None:
+            self.generation_params['thinking'] = bool(thinking)
 
     def update_last_used(self):
         """Updates the last_used timestamp. Fixes the AttributeError crash."""
@@ -201,16 +204,25 @@ class ChatInstance:
                      content = data.get('content')
                      
                      if msg_type == 'chunk':
-                         # We can accumulate or just wait for the final 'finish'
-                         pass 
+                         # Print to console so the user sees progress
+                         print(content, end="", flush=True)
+                     elif msg_type == 'thinking':
+                         # Print thinking to console
+                         print(f"[THINKING: {content}]", end="", flush=True)
+                     elif msg_type == 'status':
+                         print(f"\n[STATUS: {content}]")
+                     elif msg_type == 'tool_result':
+                         print(f"[TOOL_RESULT: {content.get('name')}]")
                      elif msg_type == 'finish':
-                         # This is the final content from the loop
+                         print("\n[TURN COMPLETE]")
                          status = "success"
                          final_content = content 
                      elif msg_type == 'error':
+                         print(f"\n[ERROR: {content}]")
                          status = "failure"
                          final_content = content
                      elif msg_type == 'stopped':
+                         print("\n[STOPPED]")
                          status = "failure"
                          final_content = "Stopped."
                 
@@ -246,6 +258,23 @@ class ChatInstance:
         msgs.extend(self.chat_history)
         return msgs
 
+    def _broadcast(self, msg_type, content):
+        """Internal helper to send to both local SSE and global telemetry."""
+        if msg_type is None:
+            if self.sse_queue: self.sse_queue.put(None)
+            return
+
+        msg_json = json.dumps({"type": msg_type, "content": content})
+        if self.sse_queue:
+            self.sse_queue.put(msg_json)
+        
+        # Global Telemetry
+        try:
+            from chat_manager import chat_manager
+            chat_manager.broadcast_telemetry(self.name, msg_type, content)
+        except:
+            pass
+
     def _run_generation_in_thread(self, current_messages, config):
         max_cycles = config.get("max_turns", 30)
         cycles = 0
@@ -278,10 +307,10 @@ class ChatInstance:
                     
                     if chunk_type == "chunk":
                         text_buffer += data
-                        self.sse_queue.put(json.dumps({"type": "chunk", "content": data}))
+                        self._broadcast("chunk", data)
                     elif chunk_type == "thinking":
                         thought_buffer += data
-                        self.sse_queue.put(json.dumps({"type": "thinking", "content": data}))
+                        self._broadcast("thinking", data)
                     elif chunk_type == "tool_calls":
                         tool_calls = data.get("calls", [])
                         text_buffer = data.get("text", text_buffer)
@@ -319,7 +348,7 @@ class ChatInstance:
                     msg["thoughts"] = thought_buffer
                 current_messages.append(msg)
                 
-                self.sse_queue.put(json.dumps({"type": "status", "content": f"Executing {len(tool_calls)} tools..."}))
+                self._broadcast("status", f"Executing {len(tool_calls)} tools...")
 
                 # 2. Execute and Append Results
                 for call in tool_calls:
@@ -333,10 +362,10 @@ class ChatInstance:
                         "name": call["name"],
                         "content": result
                     })
-                    self.sse_queue.put(json.dumps({
-                        "type": "tool_result", 
-                        "content": {"name": call["name"], "result_preview": str(result)[:100]+"..."}
-                    }))
+                    self._broadcast("tool_result", {
+                        "name": call["name"], 
+                        "result_preview": str(result)[:100]+"..."
+                    })
                 
                 # --- INCREMENTAL SAVE ---
                 # Save progress after tool execution so work is not lost if next turn fails
@@ -353,8 +382,8 @@ class ChatInstance:
             # History is already saved incrementally. 
             # If we errored, we keep what we had.
             
-            self.sse_queue.put(json.dumps({"type": final_type, "content": final_content}))
-            self.sse_queue.put(None)
+            self._broadcast(final_type, final_content)
+            self._broadcast(None, None)
             
             # Final save check
             chat_manager.save_instance_state(self.instance_id)

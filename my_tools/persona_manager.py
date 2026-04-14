@@ -1,7 +1,11 @@
 # my_tools/persona_manager.py
 import json
 import os
+import logging
 from typing import Dict, Any
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Securely import necessary helpers from other modules
 from my_tools.path_security import _get_project_root, _is_path_safe
@@ -187,29 +191,99 @@ def instantiate_persona(persona_name: str, chat_manager_instance) -> tuple:
     details_json = get_persona_details(persona_name)
     details = json.loads(details_json)
 
-    if details.get("status") != "success":
+    if details.get("status") == "error":
         return None, details.get("message", "Failed to get persona details.")
 
-    persona_config = details.get("persona_details", {})
+    # Personas follow a standard format:
+    # { "persona_name": "...", "model_config": { "provider": "...", "model_name": "...", "generation_params": {...} }, "system_prompt": "...", "tools": [...] }
+    
+    model_config = details.get("model_config", {})
+    provider = model_config.get("provider")
     
     # Create a new instance
     new_instance = chat_manager_instance.create_instance(
-        provider_name=persona_config.get("api_client_class_name"),
-        api_key=None  # Assuming API keys are handled globally or are not in persona file
+        provider_name=provider
     )
     if not new_instance:
-        return None, "Failed to create a new chat instance."
+        return None, f"Failed to create a new chat instance with provider '{provider}'."
 
     # Apply persona configuration
-    new_instance.name = persona_config.get("name", f"New {persona_name}")
-    new_instance.set_config(
-        model=persona_config.get("selected_model"),
-        system_prompt=persona_config.get("system_prompt"),
-        temp=persona_config.get("generation_params", {}).get("temperature"),
-        top_p=persona_config.get("generation_params", {}).get("top_p")
-    )
-    new_instance.tools_definitions = persona_config.get("tools_definitions", {})
+    new_instance.name = f"{persona_name} Mode"
+    gen_params = model_config.get("generation_params", {})
     
+    new_instance.set_config(
+        model=model_config.get("model_name"),
+        system_prompt=details.get("system_prompt"),
+        temp=gen_params.get("temperature"),
+        top_p=gen_params.get("top_p"),
+        thinking=gen_params.get("thinking")
+    )
+    
+    # Register tools
+    new_instance.tool_manager.build_module_map()
+    for tool_name in details.get("tools", []):
+        module_path = new_instance.tool_manager.tool_module_map.get(tool_name)
+        if module_path:
+            new_instance.register_tool(name=tool_name, module_path=module_path, function_name=tool_name)
+            
     chat_manager_instance.save_instance_state(new_instance.instance_id)
 
     return new_instance, f"Successfully instantiated persona '{persona_name}'."
+
+
+def list_offices() -> str:
+    """
+    (Low-Cost) Lists all available pre-configured Offices (departments) from the office registry.
+    Use this to identify which specialist group to hire for a project.
+    """
+    app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    registry_path = os.path.join(app_root, 'personas', 'office_registry.json')
+
+    if not os.path.exists(registry_path):
+        return json.dumps({"status": "error", "message": "Office registry not found."})
+
+    try:
+        with open(registry_path, 'r', encoding='utf-8') as f:
+            registry = json.load(f)
+        return json.dumps({
+            "status": "success",
+            "offices": registry.get("offices", {})
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Error reading office registry: {e}"})
+
+
+def deploy_office(office_name: str) -> str:
+    """
+    (High-Cost) Instantiates an entire department by deploying all required personas to the workspace.
+    Use this at the start of a project to 'hire' a full-stack team with a single command.
+
+    @param office_name (string): The name of the office to deploy (e.g., 'Software Studio', 'Marketing Agency'). REQUIRED.
+    """
+    app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    registry_path = os.path.join(app_root, 'personas', 'office_registry.json')
+
+    if not os.path.exists(registry_path):
+        return json.dumps({"status": "error", "message": "Office registry not found."})
+
+    try:
+        with open(registry_path, 'r', encoding='utf-8') as f:
+            registry = json.load(f)
+        
+        offices = registry.get("offices", {})
+        if office_name not in offices:
+            return json.dumps({"status": "error", "message": f"Office '{office_name}' not found in registry."})
+        
+        roles = offices[office_name].get("roles", [])
+        results = []
+        for role in roles:
+            results.append(json.loads(deploy_agent(role)))
+        
+        success_count = sum(1 for r in results if r['status'] == 'success')
+        return json.dumps({
+            "status": "success" if success_count == len(roles) else "partial_success",
+            "message": f"Deployed {success_count} out of {len(roles)} agents for the '{office_name}' office.",
+            "details": results
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Office deployment failed: {e}"})

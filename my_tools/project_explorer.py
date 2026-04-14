@@ -32,8 +32,9 @@ def get_directory_tree() -> str:
 
 def list_files(directory_path: Optional[str] = None) -> str:
     """
-    (Low-Cost) Lists all files, optionally filtering by a specific subdirectory.
-    @param directory_path (string): The directory to filter by (e.g., "src/api/"). If omitted, all files in the project are listed.
+    (Low-Cost) Lists all files, optionally filtering by a specific subdirectory. Returns a list of project-relative paths (e.g., 'folder/file.txt').
+    
+    @param directory_path (string): The project-relative directory to filter by (e.g., "src/"). If omitted, all files in the project are listed.
     """
     manager = _CodebaseManager()
 

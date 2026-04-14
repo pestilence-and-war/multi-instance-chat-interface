@@ -1,0 +1,52 @@
+{
+  "offices": {
+    "Software Studio": {
+      "description": "A complete full-stack development team for engineering software, web apps, and games.",
+      "roles": [
+        "Project Manager",
+        "Strategist",
+        "Technical Lead",
+        "Developer",
+        "Frontend Developer",
+        "UI UX Designer",
+        "Test Engineer",
+        "Security Expert"
+      ]
+    },
+    "Marketing Agency": {
+      "description": "A creative team focused on brand identity, copywriting, and visual asset generation.",
+      "roles": [
+        "Creative Director",
+        "Strategist",
+        "Visual Researcher",
+        "Blogger",
+        "Social Media Manager",
+        "Writer",
+        "Editor"
+      ]
+    },
+    "Research Lab": {
+      "description": "An analytical team for deep-dive internet research, data synthesis, and reporting.",
+      "roles": [
+        "Project Manager",
+        "Strategist",
+        "Business Analyst",
+        "Researcher",
+        "Data Scientist",
+        "Financial Analyst",
+        "Editor"
+      ]
+    },
+    "Game Development Studio": {
+      "description": "Specialized team for building game mechanics, logic, and assets.",
+      "roles": [
+        "Game Director",
+        "Strategist",
+        "Game Designer",
+        "Game Developer",
+        "Visual Researcher",
+        "Test Engineer"
+      ]
+    }
+  }
+}

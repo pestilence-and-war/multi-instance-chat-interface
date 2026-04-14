@@ -255,7 +255,9 @@ def update_config(instance_id):
             model=data.get('model'),
             system_prompt=data.get('system_prompt'),
             temp=data.get('temperature'),
-            top_p=data.get('top_p')
+            top_p=data.get('top_p'),
+            max_turns=data.get('max_turns'),
+            thinking=data.get('thinking') == 'on' # Checkbox value is 'on' if checked
         )
         chat_manager.save_instance_state(instance_id)
         return render_template('partials/status_update.html', instance_id=instance_id, message="Config updated.")
@@ -287,7 +289,8 @@ def apply_persona(instance_id):
             system_prompt=details.get("system_prompt"),
             # We specifically DO NOT override instance.selected_model here
             # to respect the user's UI selection.
-            temp=model_config.get("generation_params", {}).get("temperature")
+            temp=model_config.get("generation_params", {}).get("temperature"),
+            thinking=model_config.get("generation_params", {}).get("thinking")
         )
 
         # 3. Clear and Register Tools
@@ -686,6 +689,23 @@ def serve_uploaded_file(filename):
     if not os.path.exists(file_path):
         return "Not Found", 404
     return send_from_directory(upload_folder, filename)
+
+# --- Telemetry Dashboard ---
+
+@app.route('/telemetry/poll')
+def telemetry_poll():
+    """Returns the current telemetry buffer as JSON for polling."""
+    # Convert deque to list for JSON serialization
+    events = list(chat_manager.telemetry_buffer)
+    return jsonify({
+        "status": "success",
+        "events": events
+    })
+
+@app.route('/telemetry/view')
+def telemetry_view():
+    """Renders the telemetry dashboard partial."""
+    return render_template('partials/telemetry.html')
 
 if __name__ == '__main__':
     os.makedirs("chat_sessions", exist_ok=True)
