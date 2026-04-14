@@ -33,6 +33,26 @@ def execute_command(command: str) -> str:
              warnings.append(warning_msg)
 
     try:
+        # --- venv Injection ---
+        run_env = os.environ.copy()
+        venv_dir = None
+        for venv_name in ['venv', '.venv', 'env']:
+            potential_venv = os.path.join(working_dir, venv_name)
+            if os.path.isdir(potential_venv):
+                venv_dir = potential_venv
+                break
+                
+        if venv_dir:
+            if sys.platform == "win32":
+                venv_bin = os.path.join(venv_dir, 'Scripts')
+            else:
+                venv_bin = os.path.join(venv_dir, 'bin')
+                
+            if os.path.isdir(venv_bin):
+                run_env['VIRTUAL_ENV'] = venv_dir
+                run_env['PATH'] = venv_bin + os.pathsep + run_env.get('PATH', '')
+                run_env.pop('PYTHONPATH', None) # Force isolation
+
         # Use Popen to have access to the child's PID for aggressive cleanup
         proc = subprocess.Popen(
             command,
@@ -42,7 +62,7 @@ def execute_command(command: str) -> str:
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
-            env=os.environ.copy()
+            env=run_env
         )
         
         try:
@@ -102,6 +122,26 @@ def start_background_service(command: str, instance=None) -> str:
             command = command.replace("python3 ", "python ", 1)
 
     try:
+        # --- venv Injection ---
+        run_env = os.environ.copy()
+        venv_dir = None
+        for venv_name in ['venv', '.venv', 'env']:
+            potential_venv = os.path.join(working_dir, venv_name)
+            if os.path.isdir(potential_venv):
+                venv_dir = potential_venv
+                break
+                
+        if venv_dir:
+            if sys.platform == "win32":
+                venv_bin = os.path.join(venv_dir, 'Scripts')
+            else:
+                venv_bin = os.path.join(venv_dir, 'bin')
+                
+            if os.path.isdir(venv_bin):
+                run_env['VIRTUAL_ENV'] = venv_dir
+                run_env['PATH'] = venv_bin + os.pathsep + run_env.get('PATH', '')
+                run_env.pop('PYTHONPATH', None) # Force isolation
+
         # Use Popen to run without blocking
         # 'shell=True' is needed for command strings on Windows
         proc = subprocess.Popen(
@@ -111,7 +151,7 @@ def start_background_service(command: str, instance=None) -> str:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=os.environ.copy(),
+            env=run_env,
             start_new_session=True # Decouple from parent
         )
         
@@ -230,13 +270,33 @@ def jailed_pytest(test_file: str) -> str:
         return json.dumps({'status': 'error', 'message': f'Test file not found: {test_file}'}, indent=2)
 
     try:
+        # --- venv Injection ---
+        run_env = os.environ.copy()
+        venv_dir = None
+        for venv_name in ['venv', '.venv', 'env']:
+            potential_venv = os.path.join(project_root, venv_name)
+            if os.path.isdir(potential_venv):
+                venv_dir = potential_venv
+                break
+                
+        if venv_dir:
+            if sys.platform == "win32":
+                venv_bin = os.path.join(venv_dir, 'Scripts')
+            else:
+                venv_bin = os.path.join(venv_dir, 'bin')
+                
+            if os.path.isdir(venv_bin):
+                run_env['VIRTUAL_ENV'] = venv_dir
+                run_env['PATH'] = venv_bin + os.pathsep + run_env.get('PATH', '')
+                run_env.pop('PYTHONPATH', None) # Force isolation
+
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", test_file, "-v", "--tb=short"],
+            [sys.executable if not venv_dir else os.path.join(venv_bin, 'python'), "-m", "pytest", test_file, "-v", "--tb=short"],
             cwd=project_root,
             capture_output=True,
             text=True,
             timeout=60,
-            env={**os.environ, "PYTHONPATH": ""} 
+            env=run_env
         )
 
         return json.dumps({

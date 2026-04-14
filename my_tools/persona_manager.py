@@ -202,7 +202,8 @@ def instantiate_persona(persona_name: str, chat_manager_instance) -> tuple:
     
     # Create a new instance
     new_instance = chat_manager_instance.create_instance(
-        provider_name=provider
+        provider_name=provider,
+        caller=persona_name
     )
     if not new_instance:
         return None, f"Failed to create a new chat instance with provider '{provider}'."

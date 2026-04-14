@@ -61,7 +61,7 @@ def inspect_image_url(url: str, query: str = "Describe this image in detail, foc
             f.write(response.content)
         
         # 3. Create a temporary ChatInstance for the vision call
-        spec_instance = chat_manager.create_instance(provider_name=provider_name)
+        spec_instance = chat_manager.create_instance(provider_name=provider_name, caller="Vision")
         if not spec_instance:
              return json.dumps({"status": "error", "message": "Failed to create vision instance."})
 
