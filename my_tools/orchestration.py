@@ -22,6 +22,12 @@ def delegate_task(persona_name: str, task_description: str, instance=None) -> st
     @param instance (object): INTERNAL. The calling ChatInstance. DO NOT provide this manually.
     """
     logger.info(f"Delegating task to '{persona_name}': {task_description[:100]}...")
+    
+    # --- GLOBAL TELEMETRY BROADCAST ---
+    try:
+        from chat_manager import chat_manager
+        chat_manager.broadcast_telemetry("ORCHESTRATOR", "status", f"Delegating task to {persona_name}...")
+    except: pass
 
     # 1. Inherit Model and Provider from parent if available
     # This prevents VRAM thrashing and "Model Not Found" errors by sticking to the user's selection.

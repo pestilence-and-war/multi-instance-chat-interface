@@ -15,12 +15,27 @@ API_CLIENT_CLASSES = {
 DEFAULT_PROVIDER = "Google"
 # --- End Registry ---
 
+import collections
+
 class ChatManager:
     def __init__(self, save_dir="chat_sessions"):
         self.instances = {} # {instance_id: ChatInstance}
         self.save_dir = save_dir
+        # Thread-safe buffer for global telemetry events
+        self.telemetry_buffer = collections.deque(maxlen=100) 
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
+
+    def broadcast_telemetry(self, agent_name, event_type, content):
+        """Adds a telemetry event to the global buffer."""
+        # Format the event
+        event = {
+            "agent": agent_name,
+            "type": event_type,
+            "content": content,
+            "timestamp": time.strftime("%H:%M:%S")
+        }
+        self.telemetry_buffer.append(event)
 
     def create_instance(self, provider_name=None, api_key=None):
         provider_name = provider_name or DEFAULT_PROVIDER

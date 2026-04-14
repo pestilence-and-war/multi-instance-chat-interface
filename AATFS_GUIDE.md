@@ -8,68 +8,70 @@ The AATFS transforms a single LLM into an "Office" composed of specialized domai
 
 The entire system is managed via the **Project Manager (PM)** or specialized "Directors" (e.g., Creative Director, Game Director), who act as the orchestrators of the project lifecycle.
 
-## 2. The Shared Project Journal
+## 2. The Shared Project Journal & Kanban Board
 
 The **Project Journal** is the "Source of Truth" for the entire office. It is a shared, searchable, and persistent space where all specialists record their progress, findings, and deliverables.
 
--   **Research_Findings_v1**: Raw data, facts, and the **Source Manifest**.
--   **Financial_Analysis_v1**: Budgetary and numerical findings.
--   **Final_Draft_v1**: The primary output (e.g., a blog post, script, or code).
--   **Editor_Feedback**: Critiques, audit results, and rejection reasons.
+-   **Master_Plan (The State Machine)**: A versioned entry containing a strict **Kanban Checklist** (`[ ]` for pending, `[x]` for completed). This allows the system to recover from failures and resume work exactly where it left off.
+-   **Research_Findings**: Raw data, facts, and the **Source Manifest**.
+-   **Final_Draft**: The primary output (e.g., a blog post, script, or code).
+-   **Editor_Feedback / Test_Report**: Critiques, audit results, and rejection reasons.
 -   **Technical_Architecture**: System designs and implementation plans.
 
 ## 3. The Specialist Workflow: Read-Modify-Write (RMW)
 
 To maintain context and prevent "cascade failures," all specialists follow the **RMW Protocol**:
 
-1.  **READ PREVIOUS**: Specialists must read the previous draft (v1, v2) and any feedback (Editor_Feedback) before starting.
+1.  **READ PREVIOUS**: Specialists must read the previous draft and any feedback before starting.
 2.  **MODIFY (FULL REWRITE)**: Specialists perform a *complete rewrite* of the deliverable, integrating the new findings or fixes into the existing context.
-3.  **WRITE VERSIONED**: Specialists save their new work to a new version (e.g., `Final_Draft_v2`) to preserve the "Paper Trail."
+3.  **WRITE VERSIONED**: Specialists save their new work to a new version (e.g., `v2`, `v3`) to preserve the "Paper Trail."
 
 ## 4. Data Integrity: The Source Manifest & Anchors
 
 To eliminate hallucinations, the office follows a strict data anchoring protocol:
 
 -   **The Source Manifest**: Every `Research_Findings` entry *must* end with a list of verified URLs used.
--   **Data Snippets**: Researchers provide literal quotes (snippets) from sources to "anchor" all numerical and factual claims.
--   **Top-Line Anchors**: Agents must identify and verify "anchor" metrics (e.g., Total Revenue) before deriving or calculating any sub-metrics.
+-   **Anti-Fraud Mandate**: Agents are forbidden from "simulating" or "mocking" work. Reports are considered fraudulent and rejected if they lack raw JSON tool output (e.g., from `execute_command`).
+-   **Top-Line Anchors**: Agents must identify and verify "anchor" metrics before deriving or calculating any sub-metrics.
 
 ## 5. The "Diagnostic Loop" (Autonomous Error Correction)
 
-The most powerful feature of the AATFS is the **Diagnostic Loop**, orchestrated by the **Project Manager** in response to feedback from the **Editor** or **Test Engineer**.
+The **Diagnostic Loop** is orchestrated by the **Project Manager** in response to feedback from the **Editor** or **Test Engineer**.
 
-1.  **Orchestration**: The PM hires a Specialist (e.g., Writer) and an Auditor (e.g., Editor).
+1.  **Orchestration**: The PM hires a Specialist and an Auditor.
 2.  **Audit**: The Auditor compares the work to the research and rules. They issue a `PASS` or `FAIL`.
-3.  **Triage**: If a `FAIL` occurs, the PM does not guess the reason. They read the **Editor_Feedback**.
-4.  **Correction**: The PM re-delegates the specific fix to the Specialist, providing them with the exact failure reason and context.
+3.  **Triage**: If a `FAIL` occurs, the PM reads the **Editor_Feedback** or **[FRAUD_DETECTED]** tag.
+4.  **Correction**: The PM re-delegates the specific fix to the Specialist with the exact failure reason.
 5.  **Finalization**: The project only completes when the Auditor issues a `PASS`.
 
-## 6. Staffing & Roles
+## 6. Recursive Planning
 
-The AATFS includes a diverse bank of personas, each with unique toolsets:
+Complex goals are handled via **Recursive Strategy**:
+1.  The PM hires a **Strategist** using the `develop_project_strategy` tool.
+2.  The Strategist analyzes the goal and decomposes it into a versioned **Master_Plan**.
+3.  The PM then executes each milestone in the plan sequentially.
 
-| Role | Competency |
-| :--- | :--- |
-| **Project Manager** | CEO and lead orchestrator. Staffs teams and manages the Diagnostic Loop. |
-| **Architect** | High-level system design and initial workspace setup. |
-| **Strategist** | Master planning and milestone decomposition. |
-| **Researcher** | Deep information gathering using Tavily and Grokipedia. |
-| **Financial Analyst** | Budgeting, forecasting, and math-verified data analysis. |
-| **Developer** | Full-stack implementation and code auditing. |
-| **Editor** | Quality assurance, hallucination checks, and final polishing. |
+## 7. Staffing & Offices
 
-## 7. The Office Abstraction (New)
+To manage complexity, the AATFS uses **Offices** (pre-staffed departments). Instead of hiring agents one by one, the **Architect** can deploy an entire specialized group:
 
-To manage complexity, the AATFS uses the concept of **Offices** (pre-staffed departments). Instead of hiring individual agents one by one, the **Architect** or user can deploy an entire specialized group (e.g., a "Software Studio") to the workspace.
+-   **Software Studio**: Full-stack engineering (PM, Developer, Test Engineer, etc.).
+-   **Marketing Agency**: Brand and content (Creative Director, Writer, Visual Researcher).
+-   **Research Lab**: Deep-dive analysis (Strategist, Researcher, Financial Analyst).
 
--   **Software Studio**: A full-stack engineering team.
--   **Marketing Agency**: A content and brand identity team.
--   **Research Lab**: A data-driven analytical team.
+Offices are defined in `personas/office_registry.json` and instantiated via `deploy_office`.
 
-Offices are defined in `personas/office_registry.json` and are instantiated via the `deploy_office` tool. This ensures that every project starts with a balanced, cross-functional team ready to execute the **Master Plan**.
+## 8. Global Telemetry Dashboard
 
-## 8. Operational Standards
+The **📡 Office Telemetry** dashboard provides a real-time, detached view of all office activity.
+-   **System Events**: Logs of delegations, tool calls, and errors.
+-   **Live Agent Stream**: Real-time text and "Thinking" output from even headless sub-agents.
+-   **Transparency**: Allows the user to monitor "Anti-Fraud" compliance and intervene if an agent goes off-track.
 
--   **Markdown First**: All journal entries and reports must use Markdown for clarity and structure.
--   **No Overwriting**: Always use versioned suffixes (`v1`, `v2`) to maintain a clear audit trail.
--   **Silence is Mandatory**: High-level orchestrators (Architect) often output only tool calls to ensure speed and focus.
+## 9. Operational Standards
+
+-   **Windows-Aware**: Shell tools automatically handle path security and command translation (e.g., `python3` to `python`).
+-   **Background Services**: Long-running tasks (like web servers) must use `start_background_service` to prevent hanging the orchestration loop.
+-   **Context Efficiency**: Orchestrators receive **truncated summaries** of specialist outputs. Full data must be read from the Journal.
+-   **Markdown First**: All entries use Markdown for structure.
+-   **Silence is Mandatory**: High-level orchestrators often output only tool calls to ensure speed and focus.

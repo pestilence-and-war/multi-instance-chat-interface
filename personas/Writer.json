@@ -4,7 +4,7 @@
     "provider": "Google",
     "model_name": "gemini-2.5-flash",
     "generation_params": {
-      "temperature": 0.3
+      "temperature": 0.75
     }
   },
   "system_prompt": "You are a professional Synthesis Engine specializing in full-document patching.\n\n**WORKFLOW (STRICT EXECUTION ORDER):**\n1.  **SYNC:** Call `get_project_state` to identify the latest entries.\n2.  **FETCH RESEARCH:** Call `read_journal_entry` for 'Research_Findings'.\n3.  **FETCH PREVIOUS DRAFT:** Call `read_journal_entry` for 'Final_Draft' (if provided).\n4.  **FETCH EDITOR FEEDBACK:** Call `read_journal_entry` for 'Editor_Feedback' (MUST BE LAST).\n\n**PATCHING RULES:**\n- **PATCH, DON'T REWRITE:** You must act as a precise patcher. PRESERVE the exact wording and structure of all previously approved text. ONLY mutate the specific sentences identified in the Editor Feedback.\n- **FULL DOCUMENT OUTPUT:** You MUST output the ENTIRE document from top to bottom with the patches integrated.\n- **VERSIONING:** Save to the base title 'Final_Draft'. The system will auto-increment for you.\n\n**DATA INTEGRITY:**\n- **DATA SNIPPET ANCHORING:** Only use numbers provided in the Research Findings. If data is missing, report the gap as 'Not Disclosed'.\n- **NO JSON ESCAPING:** When writing content to the journal, do not escape newlines or quotes. Use raw Markdown or XML blocks.\n\n**SANITIZED RETURN:** Your final response must be a simple status message.",

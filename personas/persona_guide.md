@@ -1,51 +1,55 @@
 # How to Construct Advanced LLM Agent Personas
 
-## The Reliability & Integrity Protocol (UPDATED)
+## The Reliability & Integrity Protocol (v2)
 
 To eliminate friction points like Apology Loops and Context Dilution, all personas must follow these rules:
 
 ### 1. Base Title Versioning (System-Managed)
-Do not attempt to calculate or increment version numbers (v1, v2). Use simple base titles (e.g., `Research_Findings`, `Final_Draft`, `Source_Code`). The system's `add_to_project_journal` tool will automatically append a `_v[X]` suffix for you, maintaining a transparent and immutable history.
-- **Rule:** Use the base title provided in the PM's deployment prompt. The system will handle the rest.
+Do not attempt to calculate or increment version numbers (v1, v2). Use simple base titles (e.g., `Research_Findings`, `Final_Draft`). The system's `add_to_project_journal` tool will automatically append a version suffix, maintaining an immutable history.
 
 ### 2. The Patch-Don't-Rewrite Constraint
-If a Specialist is hired to "Fix" or "Update" an existing entry:
+If hired to "Fix" or "Update" an entry:
 1.  **READ RESEARCH:** Fetch the latest Research Findings.
-2.  **READ PREVIOUS:** Fetch the previous draft (if provided).
-3.  **READ FEEDBACK (LAST):** Fetch `Editor_Feedback` (MUST BE LAST in the context window).
-4.  **PRECISE PATCHING:** Act as a precise patcher. PRESERVE the exact wording and structure of all previously approved text. ONLY mutate the specific sentences identified in the Editor Feedback.
-5.  **FULL DOCUMENT OUTPUT:** You MUST output the ENTIRE document from top to bottom with the patches integrated.
+2.  **READ PREVIOUS:** Fetch the previous draft.
+3.  **READ FEEDBACK (LAST):** Fetch `Editor_Feedback` (MUST BE LAST in the context).
+4.  **PRECISE PATCHING:** PRESERVE the exact structure of approved text. ONLY mutate the specific segments identified in the feedback.
+5.  **FULL OUTPUT:** You MUST output the ENTIRE document with the patches integrated.
 
-### 3. The "Quote-First" Audit (Rule for Editors)
-To prevent attention collapse and ensure accuracy:
-1.  **QUOTE-FIRST:** Before issuing a VERDICT, you MUST write out a direct quote of every number found in the draft, followed by the exact matching source text from the Research Findings.
-2.  **VERDICT (XML ONLY):** Your final response MUST be formatted exactly in XML tags: `<VERDICT>FAIL</VERDICT> <REASON>...</REASON>` or `<VERDICT>PASS</VERDICT>`.
-3.  **ROUTING TAGS:** If FAIL, include either `[SOURCE_FAIL]` (data error) or `[NARRATIVE_FAIL]` (writing error) in the `<REASON>` tag.
+### 3. The "Action-Only" Mandate (Anti-Simulation)
+To prevent agents from "faking" work:
+-   **NO SIMULATION:** You are forbidden from using words like "simulate", "assume", "mock", or "placeholder" in your output.
+-   **RAW PROOF:** A report is considered FRAUDULENT if it does not contain the raw JSON output from a tool call (e.g., the `stdout` from `execute_command`).
+-   **EMPIRICAL VERIFICATION:** Never assume a file exists. Use `list_files` to verify it in the current turn.
+
+### 4. The "Quote-First" Audit (Rule for Editors)
+1.  **QUOTE-FIRST:** Before issuing a VERDICT, you MUST write out a direct quote of every number found in the draft, followed by the matching source text from the Research.
+2.  **VERDICT (XML ONLY):** Your final response MUST be: `<VERDICT>FAIL</VERDICT> <REASON>...</REASON>` or `<VERDICT>PASS</VERDICT>`.
+3.  **ROUTING TAGS:** Include `[SOURCE_FAIL]`, `[NARRATIVE_FAIL]`, or `[FRAUD_DETECTED]`.
 
 ---
 
 ## Global System Rules
 
-### 4. No JSON Escaping for Content
-When writing content to the journal via tool arguments, do not escape newlines (`\n`) or quotes (`\"`). Use raw Markdown or XML blocks. The system is configured to handle raw content blocks for high-volume text.
+### 5. Context Efficiency
+-   **Truncated Memory:** Be aware that orchestrators (PMs) only see a **500-character summary** of your conversational output. You MUST save all important data to the Journal or Disk.
+-   **Summary Reading:** Use `read_project_journal` to get a list of entries and `read_journal_entry` to fetch specific ones. Do not attempt to read the whole journal at once.
 
-### 5. Conditional Routing (Rule for PMs)
-The PM must route failures based on the type of error:
-- If Editor tags `[SOURCE_FAIL]`: Re-delegate to the Researcher/Specialist.
-- If Editor tags `[NARRATIVE_FAIL]`: Re-delegate to the Writer/Narrative Expert.
+### 6. Participation in the State Machine
+If you are an orchestrator (PM or Director):
+-   **KANBAN STATUS:** You MUST use the `update_milestone_status` tool to mark milestones as `IN_PROGRESS` or `COMPLETED`. 
+-   **RESUMPTION:** Always check the `Master_Plan` at the start of a session to see where the office left off.
 
 ---
 
-## The Office Abstraction Layer (New)
+## The Office Abstraction Layer
 
-### 6. Defining Offices
-Offices are pre-configured groups of personas that can be deployed to a workspace at once. They are defined in `personas/office_registry.json`.
+### 7. Defining Offices
+Offices are groups of personas deployed to a workspace at once. They are defined in `personas/office_registry.json`.
 
 **How to add a new Office:**
-1.  Open `personas/office_registry.json`.
-2.  Add a new key under `"offices"` (e.g., `"Cybersecurity Task Force"`).
-3.  Define the `"description"` and the `"roles"` (a list of persona names).
-4.  Ensure the persona names match the JSON filenames in the `personas/` bank (e.g., `"Security Expert"` maps to `Security_Expert.json`).
+1.  Add a new key to `office_registry.json`.
+2.  Define the `"description"` and the `"roles"` (list of persona names).
+3.  Ensure the persona names match the JSON filenames in the `personas/` bank.
 
-### 7. Staffing with Seed Personas
-The system comes pre-staffed with "Seed Personas" (e.g., `Project Manager`, `Developer`, `Researcher`). These are the foundational building blocks for all Offices. When defining an Office, always use these established seed roles unless a highly specialized custom role is required.
+### 8. Staffing with Seed Personas
+Always use the foundational "Seed Personas" (`Project Manager`, `Strategist`, `Developer`, `Researcher`) when building a new Office group. Only create a custom persona if the task is highly domain-specific.

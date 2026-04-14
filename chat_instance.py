@@ -258,6 +258,23 @@ class ChatInstance:
         msgs.extend(self.chat_history)
         return msgs
 
+    def _broadcast(self, msg_type, content):
+        """Internal helper to send to both local SSE and global telemetry."""
+        if msg_type is None:
+            if self.sse_queue: self.sse_queue.put(None)
+            return
+
+        msg_json = json.dumps({"type": msg_type, "content": content})
+        if self.sse_queue:
+            self.sse_queue.put(msg_json)
+        
+        # Global Telemetry
+        try:
+            from chat_manager import chat_manager
+            chat_manager.broadcast_telemetry(self.name, msg_type, content)
+        except:
+            pass
+
     def _run_generation_in_thread(self, current_messages, config):
         max_cycles = config.get("max_turns", 30)
         cycles = 0
@@ -290,10 +307,10 @@ class ChatInstance:
                     
                     if chunk_type == "chunk":
                         text_buffer += data
-                        self.sse_queue.put(json.dumps({"type": "chunk", "content": data}))
+                        self._broadcast("chunk", data)
                     elif chunk_type == "thinking":
                         thought_buffer += data
-                        self.sse_queue.put(json.dumps({"type": "thinking", "content": data}))
+                        self._broadcast("thinking", data)
                     elif chunk_type == "tool_calls":
                         tool_calls = data.get("calls", [])
                         text_buffer = data.get("text", text_buffer)
@@ -331,7 +348,7 @@ class ChatInstance:
                     msg["thoughts"] = thought_buffer
                 current_messages.append(msg)
                 
-                self.sse_queue.put(json.dumps({"type": "status", "content": f"Executing {len(tool_calls)} tools..."}))
+                self._broadcast("status", f"Executing {len(tool_calls)} tools...")
 
                 # 2. Execute and Append Results
                 for call in tool_calls:
@@ -345,10 +362,10 @@ class ChatInstance:
                         "name": call["name"],
                         "content": result
                     })
-                    self.sse_queue.put(json.dumps({
-                        "type": "tool_result", 
-                        "content": {"name": call["name"], "result_preview": str(result)[:100]+"..."}
-                    }))
+                    self._broadcast("tool_result", {
+                        "name": call["name"], 
+                        "result_preview": str(result)[:100]+"..."
+                    })
                 
                 # --- INCREMENTAL SAVE ---
                 # Save progress after tool execution so work is not lost if next turn fails
@@ -365,8 +382,8 @@ class ChatInstance:
             # History is already saved incrementally. 
             # If we errored, we keep what we had.
             
-            self.sse_queue.put(json.dumps({"type": final_type, "content": final_content}))
-            self.sse_queue.put(None)
+            self._broadcast(final_type, final_content)
+            self._broadcast(None, None)
             
             # Final save check
             chat_manager.save_instance_state(self.instance_id)

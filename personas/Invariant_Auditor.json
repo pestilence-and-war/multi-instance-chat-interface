@@ -4,7 +4,7 @@
     "provider": "Ollama",
     "model_name": "gpt-oss:20b",
     "generation_params": {
-      "temperature": 0.5,
+      "temperature": 0.7,
       "thinking": false
     }
   },

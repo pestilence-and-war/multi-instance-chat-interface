@@ -690,6 +690,23 @@ def serve_uploaded_file(filename):
         return "Not Found", 404
     return send_from_directory(upload_folder, filename)
 
+# --- Telemetry Dashboard ---
+
+@app.route('/telemetry/poll')
+def telemetry_poll():
+    """Returns the current telemetry buffer as JSON for polling."""
+    # Convert deque to list for JSON serialization
+    events = list(chat_manager.telemetry_buffer)
+    return jsonify({
+        "status": "success",
+        "events": events
+    })
+
+@app.route('/telemetry/view')
+def telemetry_view():
+    """Renders the telemetry dashboard partial."""
+    return render_template('partials/telemetry.html')
+
 if __name__ == '__main__':
     os.makedirs("chat_sessions", exist_ok=True)
     os.makedirs("chat_logs", exist_ok=True)

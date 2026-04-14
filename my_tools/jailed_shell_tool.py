@@ -17,6 +17,7 @@ def execute_command(command: str) -> str:
     if not working_dir:
         return json.dumps({'status': 'error', 'message': 'Project root not found.'}, indent=2)
 
+    warnings = []
     # --- Windows Compatibility Fixes ---
     if sys.platform == "win32":
         # 1. Translate python3 to python
@@ -27,41 +28,56 @@ def execute_command(command: str) -> str:
         
         # 2. Warn about backgrounding if '&' is used (it's not backgrounding on Windows)
         if "&" in command and "start /B" not in command:
-             print(f"DEBUG: Warning - Command contains '&' on Windows. This runs sequentially, NOT in background.")
+             warning_msg = "Command contains '&' on Windows. This runs sequentially, NOT in background. Use start_background_service instead."
+             print(f"DEBUG: Warning - {warning_msg}")
+             warnings.append(warning_msg)
 
     try:
-        # We use a lower timeout for safety and better process tree management
-        process = subprocess.run(
+        # Use Popen to have access to the child's PID for aggressive cleanup
+        proc = subprocess.Popen(
             command,
             shell=True,
             cwd=working_dir,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
-            timeout=45, # Slightly shorter timeout for faster recovery
             env=os.environ.copy()
         )
         
-        return json.dumps({
-            'status': 'success' if process.returncode == 0 else 'error',
-            'stdout': process.stdout.strip(),
-            'stderr': process.stderr.strip(),
-            'returncode': process.returncode,
-            'working_directory': working_dir
-        }, indent=2)
-        
-    except subprocess.TimeoutExpired as e:
-        # ON WINDOWS: subprocess.run timeout often leaves children alive. 
-        # We need to be aggressive if it was a persistent server trap.
-        if sys.platform == "win32":
-            subprocess.run(f"taskkill /F /T /PID {os.getpid()}", shell=True, capture_output=True)
+        try:
+            stdout, stderr = proc.communicate(timeout=45)
             
-        return json.dumps({
-            'status': 'error', 
-            'message': 'Command timed out after 45 seconds. Persistent processes (like servers) are not supported in this tool.',
-            'stdout': e.stdout.decode() if e.stdout else "",
-            'stderr': e.stderr.decode() if e.stderr else ""
-        }, indent=2)
+            result = {
+                'status': 'success' if proc.returncode == 0 else 'error',
+                'stdout': stdout.strip() if stdout else "",
+                'stderr': stderr.strip() if stderr else "",
+                'returncode': proc.returncode,
+                'working_directory': working_dir
+            }
+            if warnings:
+                result['warnings'] = warnings
+            return json.dumps(result, indent=2)
+            
+        except subprocess.TimeoutExpired:
+            # ON WINDOWS: kill the CHILD process tree, NOT the main app!
+            if sys.platform == "win32":
+                subprocess.run(f"taskkill /F /T /PID {proc.pid}", shell=True, capture_output=True)
+            else:
+                proc.kill()
+                
+            stdout, stderr = proc.communicate()
+            
+            result = {
+                'status': 'error', 
+                'message': 'Command timed out after 45 seconds. Persistent processes (like servers) are not supported in this tool. Use start_background_service instead.',
+                'stdout': stdout.strip() if stdout else "",
+                'stderr': stderr.strip() if stderr else ""
+            }
+            if warnings:
+                result['warnings'] = warnings
+            return json.dumps(result, indent=2)
+            
     except Exception as e:
         return json.dumps({'status': 'error', 'message': f'An unexpected error occurred: {e}'}, indent=2)
 
