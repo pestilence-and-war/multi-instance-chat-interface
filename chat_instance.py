@@ -43,6 +43,7 @@ class ChatInstance:
         self.stop_event = threading.Event()
         self.sse_queue = None
         self.is_generating = False
+        self._background_processes = {} # Track PID: subprocess.Popen objects
 
         # Build initial map for auto-discovery
         self.tool_manager.build_module_map()
@@ -145,7 +146,7 @@ class ChatInstance:
             return self.api_client.get_available_models()
         return []
 
-    def set_config(self, model=None, system_prompt=None, temp=None, top_p=None, max_turns=None):
+    def set_config(self, model=None, system_prompt=None, temp=None, top_p=None, max_turns=None, thinking=None):
         if model is not None: self.selected_model = model
         if system_prompt is not None: self.system_prompt = system_prompt
         if temp is not None: 
@@ -157,6 +158,8 @@ class ChatInstance:
         if max_turns is not None:
             try: self.generation_params['max_turns'] = int(max_turns)
             except: pass
+        if thinking is not None:
+            self.generation_params['thinking'] = bool(thinking)
 
     def update_last_used(self):
         """Updates the last_used timestamp. Fixes the AttributeError crash."""
@@ -201,16 +204,25 @@ class ChatInstance:
                      content = data.get('content')
                      
                      if msg_type == 'chunk':
-                         # We can accumulate or just wait for the final 'finish'
-                         pass 
+                         # Print to console so the user sees progress
+                         print(content, end="", flush=True)
+                     elif msg_type == 'thinking':
+                         # Print thinking to console
+                         print(f"[THINKING: {content}]", end="", flush=True)
+                     elif msg_type == 'status':
+                         print(f"\n[STATUS: {content}]")
+                     elif msg_type == 'tool_result':
+                         print(f"[TOOL_RESULT: {content.get('name')}]")
                      elif msg_type == 'finish':
-                         # This is the final content from the loop
+                         print("\n[TURN COMPLETE]")
                          status = "success"
                          final_content = content 
                      elif msg_type == 'error':
+                         print(f"\n[ERROR: {content}]")
                          status = "failure"
                          final_content = content
                      elif msg_type == 'stopped':
+                         print("\n[STOPPED]")
                          status = "failure"
                          final_content = "Stopped."
                 

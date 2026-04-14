@@ -145,6 +145,15 @@
                                 {% if instance.is_generating %} opacity-50 cursor-not-allowed {% endif %}"
                         oninput="this.previousElementSibling.querySelector('span').textContent = (this.value == 0 || this.value == '') ? 'Unlimited' : this.value">
             </div>
+            <div class="flex items-center mt-6">
+                <input type="checkbox" name="thinking" id="thinking-{{ instance.instance_id }}"
+                        {% if instance.generation_params.get('thinking', True) %}checked{% endif %}
+                        {{ 'disabled' if instance.is_generating }}
+                        class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded dark:bg-gray-800 dark:border-gray-600">
+                <label for="thinking-{{ instance.instance_id }}" class="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                    Thinking Process (Ollama)
+                </label>
+            </div>
         </div>
     </form>
 

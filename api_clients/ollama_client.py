@@ -127,28 +127,19 @@ class OllamaClient(BaseApiClient):
             yield ("error", "No model specified for Ollama.")
             return
 
-        ollama_options = {} # Initialize ollama_options before any loops
+        ollama_options = {}
 
-        ollama_options["think"] = True
+        # Use 'thinking' from config, default to True if not provided
+        is_thinking_enabled = config.get("thinking", True)
+        ollama_options["think"] = is_thinking_enabled
 
-        # Prepare API messages, including tool role and assistant tool_calls
+        # Prepare API messages
         api_messages = []
-
-        # --- NEW: Tool Silence Instruction ---
-        if self.tool_schemas:
-            api_messages.append({
-                "role": "system",
-                "content": "STRICT RULE: You are in tool-calling mode. Output ONLY the necessary tool calls. Do NOT provide an internal monologue, explanations, or conversational filler. Your entire output should be the tool call sequence or the final JSON."
-            })
-
         for msg in messages:
-
             role = msg.get("role")
             content = msg.get("content")
 
             if role == "tool":
-                # --- FIXED: Pass tool_call_id to Ollama if available ---
-                # This links the result back to the specific call, preventing context loss.
                 tool_msg = {
                     "role": "tool",
                     "name": msg.get("name"),
@@ -156,7 +147,6 @@ class OllamaClient(BaseApiClient):
                 }
                 if msg.get("tool_call_id"):
                     tool_msg["tool_call_id"] = msg.get("tool_call_id")
-                
                 api_messages.append(tool_msg)
 
             elif role == "assistant":
@@ -169,13 +159,10 @@ class OllamaClient(BaseApiClient):
                             try:
                                 args_for_api = json.loads(args_for_api)
                                 if not isinstance(args_for_api, dict):
-                                    logger.warning(f"Ollama: Parsed tool call arguments but not a dict: {args_for_api}. Forcing to empty dict.")
                                     args_for_api = {}
-                            except (json.JSONDecodeError, TypeError):
-                                logger.warning(f"Ollama: Tool call arguments for '{tc.get('name')}' were a string but not valid JSON: '{args_for_api}'. Using empty dict.")
+                            except:
                                 args_for_api = {}
                         
-                        # --- FIXED: Include the 'id' and 'type' in the tool call definition ---
                         tool_call_def = {
                             "type": "function",
                             "function": {
@@ -185,14 +172,11 @@ class OllamaClient(BaseApiClient):
                         }
                         if tc.get("id"):
                             tool_call_def["id"] = tc.get("id")
-                            
                         processed_tool_calls.append(tool_call_def)
-                    
                     assistant_msg["tool_calls"] = processed_tool_calls
                 api_messages.append(assistant_msg)
 
             elif role in ["user", "system"]:
-                # --- RESTORED: Image and File Upload Logic ---
                 msg_content_parts = []
                 if content:
                     msg_content_parts.append(content)
@@ -213,39 +197,36 @@ class OllamaClient(BaseApiClient):
                                 with open(file_path, "rb") as image_file:
                                     base64_image = base64.b64encode(image_file.read()).decode('utf-8')
                                     images_base64.append(base64_image)
-                                logger.info(f"Added image {file_info.get('filename')} to Ollama request.")
-                            except Exception as e: logger.error(f"Error image {file_path} for Ollama: {e}")
-                        else: logger.warning(f"Image path not found: {file_path}")
+                            except: pass
                 final_content = "\n".join(msg_content_parts).strip() if msg_content_parts else ""
                 message_payload = {"role": role, "content": final_content}
                 if images_base64: message_payload["images"] = images_base64
                 api_messages.append(message_payload)
-            else:
-                logger.warning(f"OllamaClient: Skipping message with unknown role: {role}")
 
-
-        # Prepare Ollama specific options FROM THE 'config' ARGUMENT
+        # Prepare Ollama specific options
         ollama_param_map = {
             "temperature": "temperature",
             "top_p": "top_p",
             "top_k": "top_k",
             "max_tokens": "num_predict",
+            "num_ctx": "num_ctx",
         }
+
+        # Set a healthy default for num_ctx if not provided
+        if "num_ctx" not in config:
+            ollama_options["num_ctx"] = 16384 
 
         for gen_param_key, ollama_key in ollama_param_map.items():
             if config.get(gen_param_key) is not None:
                  ollama_options[ollama_key] = config[gen_param_key]
 
-        # Handle stop sequences separately
+        # Handle stop sequences
         if config.get("stop_sequences"):
             stops = config["stop_sequences"]
             if isinstance(stops, str) and stops.strip():
                 ollama_options["stop"] = [stops.strip()]
-            elif isinstance(stops, list) and all(isinstance(s, str) for s in stops):
-                ollama_options["stop"] = [s for s in stops if s.strip()] 
-            if "stop" in ollama_options and not ollama_options["stop"]: 
-                 del ollama_options["stop"]
-
+            elif isinstance(stops, list):
+                ollama_options["stop"] = [s for s in stops if isinstance(s, str) and s.strip()] 
 
         data = {
             "model": model_name,
@@ -255,10 +236,6 @@ class OllamaClient(BaseApiClient):
         }
 
         if self.tool_schemas:
-            # DEBUG: Print the names of tools actually sent to the model
-            tool_names = [t['function']['name'] for t in self.tool_schemas]
-            print(f"DEBUG: Sending tools to Ollama: {tool_names}") 
-            
             data["tools"] = self.tool_schemas
             logger.info(f"OllamaClient: Providing {len(self.tool_schemas)} tools definition to {model_name}.")
 
@@ -267,49 +244,46 @@ class OllamaClient(BaseApiClient):
         accumulated_tool_calls = []
 
         try:
+            # Set a very high timeout (30 mins) for initial response as large models 
+            # take significant time to prefill large project journals.
+            logger.info(f"Ollama: Requesting {model_name} (Timeout: 1800s)...")
             response = requests.post(
-                f"{self.BASE_URL}/api/chat", headers=headers, json=data, stream=True, timeout=300
+                f"{self.BASE_URL}/api/chat", headers=headers, json=data, stream=True, timeout=1800
             )
             response.raise_for_status()
 
+            # Track time since last chunk for heartbeat logging
+            last_chunk_time = time.time()
+
             for line in response.iter_lines():
                 if stop_event.is_set():
-                    logger.info("Ollama Client: Stop event detected.")
                     yield ("stopped", full_response_content); return
 
                 if line:
-                    decoded_line = line.decode('utf-8')
+                    last_chunk_time = time.time() # Reset heartbeat
                     try:
-                        chunk = json.loads(decoded_line)
+                        chunk = json.loads(line.decode('utf-8'))
                         if "error" in chunk:
-                            logger.error(f"Ollama API stream error: {chunk['error']}")
                             yield ("error", f"Ollama API Error: {chunk['error']}"); return
+                        
                         message_chunk = chunk.get("message", {})
 
                         if message_chunk.get("thinking"):
-                            yield ("thinking", message_chunk.get("thinking"))
-                            continue # Skip the rest so it doesn't mess up content processing
+                            if is_thinking_enabled:
+                                yield ("thinking", message_chunk.get("thinking"))
+                            continue
                         
-                        # Handle standard content
                         if message_chunk.get("role") == "assistant":
                             chunk_text = message_chunk.get("content")
                             if chunk_text:
                                 full_response_content += chunk_text
                                 yield ("chunk", chunk_text)
                         
-                        # Handle tool calls in response
                         if message_chunk.get("tool_calls"):
                             for tc_ollama in message_chunk["tool_calls"]:
                                 if "function" in tc_ollama:
                                     func_data = tc_ollama["function"]
-                                    # Generate ID if missing, or use provided ID
                                     call_id = f"ollama_{func_data.get('name', 'tool')}_{int(time.time()*1000)}_{len(accumulated_tool_calls)}"
-                                    # --- FIXED: Check if Ollama provided an explicit ID (e.g. from Llama 3.1) ---
-                                    # NOTE: The chunk usually doesn't have the ID, it's aggregated. 
-                                    # But if 'tc_ollama' has 'id', we should use it? 
-                                    # Usually Ollama streams parts, but 'tool_calls' in chunks are often complete objects in newer versions.
-                                    # We'll stick to generating one if missing to be safe.
-                                    
                                     accumulated_tool_calls.append({
                                         "id": call_id, 
                                         "type": "function",
@@ -323,27 +297,13 @@ class OllamaClient(BaseApiClient):
                             else:
                                 yield ("finish", full_response_content)
                             return
-                    except json.JSONDecodeError:
-                        logger.warning(f"Ollama JSON Decode Error in stream: {decoded_line}")
-                        continue
+                    except: continue
+            
             if not stop_event.is_set():
-                 logger.warning("Ollama stream ended without 'done: true' marker.")
                  if accumulated_tool_calls: yield ("tool_calls", {"calls": accumulated_tool_calls, "text": full_response_content})
                  else: yield ("finish", full_response_content)
-        except requests.exceptions.ConnectionError:
-            yield ("error", f"Connection Error: Could not connect to Ollama at {self.BASE_URL}.")
-        except requests.exceptions.Timeout:
-            yield ("error", f"Timeout connecting to Ollama at {self.BASE_URL}.")
-        except requests.exceptions.HTTPError as e:
-            error_detail = f"HTTP Error: {e.response.status_code}"
-            try:
-                error_json = e.response.json(); error_detail += f" - {error_json.get('error', e.response.text)}"
-            except json.JSONDecodeError: error_detail += f" - {e.response.text}"
-            yield ("error", error_detail)
-        except requests.exceptions.RequestException as e:
-            yield ("error", f"Network/Request Error: {e}")
+
         except Exception as e:
-            logger.error(f"Unexpected Error in Ollama Client: {e}", exc_info=True)
-            yield ("error", f"Unexpected Client Error: {type(e).__name__} - {e}")
+            yield ("error", str(e))
         finally:
-             logger.info("OllamaClient send_message_stream_yield finished.")
+             logger.info("OllamaClient finished.")

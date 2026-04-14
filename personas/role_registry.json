@@ -28,19 +28,19 @@
       "name": "Architect",
       "file": "architect.json",
       "competency": "High-level system design and initial workspace setup.",
-      "tools": ["create_persona", "setup_digital_office_structure", "jailed_create_file"]
+      "tools": ["create_persona", "setup_digital_office_structure", "jailed_create_file", "add_to_project_journal"]
     },
     {
       "name": "Developer",
       "file": "developer.json",
       "competency": "General-purpose software development and debugging.",
-      "tools": ["create_or_update_file_safely", "apply_code_modification", "execute_command", "get_file_content", "read_journal_entry"]
+      "tools": ["create_or_update_file_safely", "apply_code_modification", "execute_command", "get_file_content", "read_journal_entry", "add_to_project_journal"]
     },
     {
       "name": "Frontend Developer",
       "file": "frontend_developer.json",
       "competency": "UI implementation and web aesthetics.",
-      "tools": ["create_or_update_file_safely", "apply_code_modification", "get_file_content", "read_journal_entry"]
+      "tools": ["create_or_update_file_safely", "apply_code_modification", "get_file_content", "read_journal_entry", "add_to_project_journal"]
     },
     {
       "name": "Game Designer",
@@ -57,8 +57,8 @@
     {
       "name": "Researcher",
       "file": "Researcher.json",
-      "competency": "Deep information gathering using web and local tools.",
-      "tools": ["tavily_search", "grokipedia_search", "get_file_content", "read_project_journal", "read_journal_entry", "add_to_project_journal"]
+      "competency": "Deep information gathering using web and local tools. Supports high-fidelity extraction.",
+      "tools": ["tavily_search", "fetch_webpage", "grokipedia_search", "grokipedia_read", "read_journal_entry", "add_to_project_journal", "get_project_state", "bulk_researcher", "list_files"]
     },
     {
       "name": "Blogger",
@@ -82,7 +82,7 @@
       "name": "Field Reporter",
       "file": "Field_Reporter.json",
       "competency": "On-the-scene data gathering and local reporting.",
-      "tools": ["tavily_search", "read_project_journal", "read_journal_entry", "add_to_project_journal"]
+      "tools": ["tavily_search", "fetch_webpage", "read_project_journal", "read_journal_entry", "add_to_project_journal"]
     },
     {
       "name": "Writer",
@@ -100,7 +100,7 @@
       "name": "Test Engineer",
       "file": "Test_Engineer.json",
       "competency": "System validation, unit testing, and pass/fail reporting.",
-      "tools": ["execute_command", "get_file_content", "create_or_update_file_safely"]
+      "tools": ["execute_command", "get_file_content", "create_or_update_file_safely", "read_journal_entry", "add_to_project_journal"]
     },
     {
       "name": "UI UX Designer",
@@ -149,6 +149,18 @@
       "file": "Business_Analyst.json",
       "competency": "Requirement definition and market trend research.",
       "tools": ["read_project_journal", "add_to_project_journal"]
+    },
+    {
+      "name": "Visual Researcher",
+      "file": "Visual_Researcher.json",
+      "competency": "Specialist in finding and verifying visual assets (images, icons) using vision-enabled search.",
+      "tools": ["search_assets", "inspect_image_url", "tavily_search", "read_journal_entry", "add_to_project_journal", "get_project_state"]
+    },
+    {
+      "name": "Strategist",
+      "file": "Strategist.json",
+      "competency": "High-level goal decomposition and master planning. Creates and updates the 'Master_Plan' in the journal.",
+      "tools": ["get_project_state", "read_journal_entry", "add_to_project_journal", "list_personas"]
     }
   ]
 }

@@ -52,12 +52,23 @@ The AATFS includes a diverse bank of personas, each with unique toolsets:
 | :--- | :--- |
 | **Project Manager** | CEO and lead orchestrator. Staffs teams and manages the Diagnostic Loop. |
 | **Architect** | High-level system design and initial workspace setup. |
+| **Strategist** | Master planning and milestone decomposition. |
 | **Researcher** | Deep information gathering using Tavily and Grokipedia. |
 | **Financial Analyst** | Budgeting, forecasting, and math-verified data analysis. |
 | **Developer** | Full-stack implementation and code auditing. |
 | **Editor** | Quality assurance, hallucination checks, and final polishing. |
 
-## 7. Operational Standards
+## 7. The Office Abstraction (New)
+
+To manage complexity, the AATFS uses the concept of **Offices** (pre-staffed departments). Instead of hiring individual agents one by one, the **Architect** or user can deploy an entire specialized group (e.g., a "Software Studio") to the workspace.
+
+-   **Software Studio**: A full-stack engineering team.
+-   **Marketing Agency**: A content and brand identity team.
+-   **Research Lab**: A data-driven analytical team.
+
+Offices are defined in `personas/office_registry.json` and are instantiated via the `deploy_office` tool. This ensures that every project starts with a balanced, cross-functional team ready to execute the **Master Plan**.
+
+## 8. Operational Standards
 
 -   **Markdown First**: All journal entries and reports must use Markdown for clarity and structure.
 -   **No Overwriting**: Always use versioned suffixes (`v1`, `v2`) to maintain a clear audit trail.
